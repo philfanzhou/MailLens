@@ -78,8 +78,9 @@ leave no final result. Search is not a coherent mailbox snapshot.
 ## Bodies, attachment names and sources
 
 Read relevant bodies by their exact `(storeId, entryId)` pair. A preview is only
-a bounded excerpt derived from `Body`, not the whole email. Moved/deleted or
-inaccessible identities fail explicitly; never replace them by matching subject.
+a bounded excerpt derived from `Body`, not the whole email. If a moved/deleted or
+inaccessible identity cannot be resolved, report the explicit failure; never
+replace it by matching subject.
 If a verified item moved, disclose its current folder.
 
 Body chunks use Unicode scalar values (`bodyOffsetUnit: unicodeScalarValues`),
