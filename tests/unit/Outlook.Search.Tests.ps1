@@ -382,7 +382,9 @@ Import-Module (Join-Path $Source 'skills/mail-lens/scripts/MailLens.Outlook.psm1
 $double = New-SearchDouble @{ 'f-root' = @(New-SyntheticMail -Body ('合同 ' + $Marker)) }
 $native = @{ isWindows = $true; powerShellVersion = '5.1.26100.33438'; edition = 'Desktop'; apartmentState = 'STA'; timeZone = 'UTC' }
 $code = Invoke-MailLensFileRequest $Request $Output $double.adapter $native
-if (($double.state.acquired.ToArray() | Sort-Object) -join '|' -cne ($double.state.released.ToArray() | Sort-Object) -join '|') { throw 'Reference imbalance' }
+$acquired = ($double.state.acquired.ToArray() | Sort-Object) -join '|'
+$released = ($double.state.released.ToArray() | Sort-Object) -join '|'
+if ($acquired -cne $released) { throw 'Reference imbalance' }
 exit $code
 '@
         [IO.File]::WriteAllText($driver, $script, [Text.UTF8Encoding]::new($true))
