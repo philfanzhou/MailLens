@@ -219,7 +219,7 @@ Describe 'Validation before Outlook' {
     It 'rejects invalid request <Json> without connecting' -ForEach @(
         @{ Json = 'null' }, @{ Json = '[]' }, @{ Json = '{"schemaVersion":2,"operation":"folders"}' },
         @{ Json = '{"schemaVersion":"1","operation":"folders"}' }, @{ Json = '{"schemaVersion":1,"operation":"Folders"}' },
-        @{ Json = '{"schemaVersion":1,"operation":"unknown"}' }, @{ Json = '{"schemaVersion":1,"operation":"search"}' },
+        @{ Json = '{"schemaVersion":1,"operation":"unknown"}' }, @{ Json = '{"schemaVersion":1,"operation":"search","listOnly":false}' },
         @{ Json = '{"schemaVersion":1,"operation":"get"}' }, @{ Json = '{"schemaVersion":1,"operation":"diagnose","mailboxes":["s-a"]}' },
         @{ Json = '{"schemaVersion":1,"operation":"folders","unknown":true}' },
         @{ Json = '{"schemaVersion":1,"operation":"folders","mailboxes":[]}' },
