@@ -1,6 +1,6 @@
 ---
 name: mail-lens
-description: 在原生 Windows 的 OpenCode 中搜索和分析 Classic Outlook 邮件；适用于按项目、关键词、时间或邮箱查邮件，以及整理邮件摘要、往来时间线和待办事项，只读取正文与附件名称。
+description: 只读检索与分析邮件；当用户需要按项目、关键词、发件人、时间或邮箱查找邮件，浏览收件箱或已发送文件夹，找某封邮件、查询谁给我发过邮件，或整理邮件摘要、往来时间线和待办事项时使用。仅支持原生 Windows 上的 OpenCode、Classic Outlook 和 Windows PowerShell 5.1，不支持 New Outlook 或网页邮箱；附件仅限名称，不读取附件内容，不发送、草拟、修改、标记已读或未读、移动、删除、分类或加旗。
 license: MIT
 compatibility: OpenCode，原生 Windows，Classic Outlook，Windows PowerShell 5.1
 ---
