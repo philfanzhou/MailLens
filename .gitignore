@@ -9,6 +9,7 @@
 # Installation receipts, diagnostics and temporary/cache files.
 *.receipt.json
 .mail-lens-receipt.json
+.mail-lens-install.json
 *.log
 *.tmp
 /.cache/
