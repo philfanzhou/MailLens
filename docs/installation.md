@@ -8,8 +8,9 @@ The [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#si
 defines the skill and query interfaces.
 
 Obtain and retain a trusted fixed source checkout/archive containing `VERSION`,
-`scripts/install.ps1` and the complete `skills/mail-lens/` tree. Acquisition and
-future release instructions belong to [issue #10](https://github.com/philfanzhou/MailLens/issues/10).
+`scripts/install.ps1` and the complete `skills/mail-lens/` tree. See
+[fixed-source acquisition](versioned-installation.md) and the
+[future authorized release procedure](releasing.md).
 The installer needs only built-in PowerShell/.NET. Git is optional source metadata;
 Python, development Pester modules, Office interop packages, model calls and
 separate credentials are unnecessary. Respect your existing execution policy;
