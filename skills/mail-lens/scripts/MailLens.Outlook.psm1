@@ -29,6 +29,7 @@ function New-MailLensComAdapter {
                 'GetNamespace' { return ,($Reference.GetNamespace('MAPI')) }
                 'GetRootFolder' { return ,($Reference.GetRootFolder()) }
                 'GetFolderFromID' { return ,($Reference.GetFolderFromID([string]$Arguments[0], [string]$Arguments[1])) }
+                'GetItemFromID' { return ,($Reference.GetItemFromID([string]$Arguments[0], [string]$Arguments[1])) }
                 'GetDefaultFolder' { return ,($Reference.GetDefaultFolder([int]$Arguments[0])) }
                 'Item' { return ,($Reference.Item([int]$Arguments[0])) }
                 default { throw 'Unsupported adapter method.' }
@@ -67,13 +68,10 @@ function Assert-MailLensRequest {
         $Request.operation -cnotin @('diagnose', 'folders', 'search', 'get')) {
         Stop-MailLens 'unsupported_operation' 'operation must be diagnose, folders, search or get.'
     }
-    # Detail remains outside this search slice.
-    if ($Request.operation -eq 'get') {
-        Stop-MailLens 'unsupported_operation' 'This operation is not implemented in this version.'
-    }
     $allowed = @('schemaVersion', 'operation')
     if ($Request.operation -in @('folders', 'search')) { $allowed += @('mailboxes', 'folders', 'includeDescendants') }
     if ($Request.operation -eq 'search') { $allowed += @('fromInclusive', 'toExclusive', 'allHistory', 'keywords', 'keywordGroups', 'listOnly', 'sender', 'summaryLimit') }
+    if ($Request.operation -eq 'get') { $allowed += @('storeId', 'entryId', 'bodyOffset', 'bodyLength') }
     foreach ($name in $names) {
         if ($name -cnotin $allowed) { Stop-MailLens 'invalid_request' 'The request contains an inapplicable or unknown field.' }
     }
@@ -96,6 +94,7 @@ function Assert-MailLensRequest {
         }
     }
     if ($Request.operation -eq 'search') { Assert-MailLensSearchRequest $Request }
+    if ($Request.operation -eq 'get') { Assert-MailLensDetailRequest $Request }
     if ('includeDescendants' -in $names -and $Request.includeDescendants -isnot [bool]) {
         Stop-MailLens 'invalid_request' 'includeDescendants must be a boolean.'
     }
@@ -116,7 +115,7 @@ function Close-MailLensReference {
 
 function Assert-MailLensNotCancelled {
     param($CancellationRequested)
-    if (& $CancellationRequested) { Stop-MailLens 'cancelled' 'The operation was cancelled; discovery coverage is incomplete.' }
+    if (& $CancellationRequested) { Stop-MailLens 'cancelled' 'The operation was cancelled; requested coverage is incomplete.' }
 }
 
 function Read-MailLensFolder {
@@ -531,6 +530,191 @@ function Complete-MailLensSearchData {
     $Search.data.folderCoverage = @($Search.data.folderCoverage.ToArray())
 }
 
+
+function Assert-MailLensDetailRequest {
+    param($Request)
+    $names = @($Request.PSObject.Properties.Name)
+    foreach ($field in @('storeId', 'entryId')) {
+        if ($field -cnotin $names -or $Request.$field -isnot [string] -or [string]::IsNullOrWhiteSpace($Request.$field)) {
+            Stop-MailLens 'invalid_request' 'get requires nonempty string storeId and entryId.'
+        }
+    }
+    if ('bodyOffset' -in $names -and ($Request.bodyOffset -isnot [int] -or $Request.bodyOffset -lt 0)) {
+        Stop-MailLens 'invalid_request' 'bodyOffset must be a nonnegative integer.'
+    }
+    if ('bodyLength' -in $names -and ($Request.bodyLength -isnot [int] -or $Request.bodyLength -lt 1 -or $Request.bodyLength -gt 100000)) {
+        Stop-MailLens 'invalid_request' 'bodyLength must be an integer from 1 to 100000.'
+    }
+}
+
+function Read-MailLensDetailProperty {
+    param($Adapter, $Reference, [string]$Name, $Context, $Location, $Zone = $null)
+    try {
+        $value = & $Adapter.Property $Reference $Name
+        if ($null -ne $Zone) {
+            $time = Convert-MailLensMailTime $value $Zone
+            if ($null -eq $time) { throw 'Unavailable date.' }
+            return $time.ToUniversalTime().ToString('o')
+        }
+        if ($value -isnot [string]) { throw 'Unavailable string.' }
+        return $value
+    } catch {
+        Add-MailLensProblem $Context 'detail_property_unavailable' 'A requested detail property is unavailable.' ([ordered]@{ source = $Location; property = $Name })
+        return $null
+    }
+}
+
+function Read-MailLensDetailList {
+    param($Adapter, $Item, [string]$Name, $Context, $Location, $CancellationRequested)
+    $collection = $null
+    $rows = New-Object 'System.Collections.Generic.List[object]'
+    $complete = $true
+    try {
+        Assert-MailLensNotCancelled $CancellationRequested
+        $collection = & $Adapter.Property $Item $Name
+        $count = [int](& $Adapter.Property $collection 'Count')
+        if ($count -lt 0) { throw 'Invalid collection count.' }
+        for ($index = 1; $index -le $count; $index++) {
+            Assert-MailLensNotCancelled $CancellationRequested
+            $child = $null; $addressEntry = $null
+            $location = [ordered]@{ source = $Location; collection = $Name; index = $index }
+            try {
+                $child = & $Adapter.Method $collection 'Item' @($index)
+                if ($Name -eq 'Attachments') {
+                    $filename = Read-MailLensDetailProperty $Adapter $child 'FileName' $Context $location
+                    if ($null -ne $filename) { [void]$rows.Add($filename) } else { $complete = $false }
+                } else {
+                    $row = [ordered]@{ displayName = $null; rawAddress = $null; addressType = $null; recipientType = $null }
+                    $row.displayName = Read-MailLensDetailProperty $Adapter $child 'Name' $Context $location
+                    $row.rawAddress = Read-MailLensDetailProperty $Adapter $child 'Address' $Context $location
+                    try { $row.recipientType = [int](& $Adapter.Property $child 'Type') }
+                    catch { $complete = $false; Add-MailLensProblem $Context 'recipient_unavailable' 'The recipient role is unavailable.' $location }
+                    try {
+                        # AddressEntry forces resolution if unresolved. Never cause that side effect.
+                        if ((& $Adapter.Property $child 'Resolved') -ne $true) { throw 'Unresolved recipient.' }
+                        $addressEntry = & $Adapter.Property $child 'AddressEntry'
+                        $row.addressType = Read-MailLensDetailProperty $Adapter $addressEntry 'Type' $Context $location
+                    } catch { $complete = $false; Add-MailLensProblem $Context 'recipient_unavailable' 'Recipient address type is unavailable; unresolved names are not resolved.' $location }
+                    if ($null -eq $row.displayName -or $null -eq $row.rawAddress -or $null -eq $row.addressType) { $complete = $false }
+                    [void]$rows.Add($row)
+                }
+            } catch {
+                if ($_.Exception.Data['MailLensCode'] -eq 'cancelled') { throw }
+                $complete = $false
+                Add-MailLensProblem $Context 'detail_collection_unavailable' 'A requested detail collection entry is unavailable.' $location
+            } finally {
+                Close-MailLensReference $Adapter $addressEntry $Context
+                Close-MailLensReference $Adapter $child $Context
+            }
+        }
+        if ([int](& $Adapter.Property $collection 'Count') -ne $count) { throw 'Collection changed.' }
+    } catch {
+        if ($_.Exception.Data['MailLensCode'] -eq 'cancelled') { throw }
+        $complete = $false
+        Add-MailLensProblem $Context 'detail_collection_unavailable' 'A requested detail collection is unavailable or changed.' ([ordered]@{ source = $Location; collection = $Name })
+    } finally { Close-MailLensReference $Adapter $collection $Context }
+    return @{ rows = @($rows.ToArray()); complete = $complete }
+}
+
+function Read-MailLensBodyChunk {
+    param([string]$Body, [int]$Offset, [int]$Length, $CancellationRequested)
+    # Request and response character offsets count Unicode scalar values, not UTF-16
+    # code units or grapheme clusters. Keep surrogate pairs intact in each UTF-8 chunk.
+    $total = 0; $start = $Body.Length; $end = $Body.Length
+    for ($index = 0; $index -lt $Body.Length; $index++) {
+        if (($total % 4096) -eq 0) { Assert-MailLensNotCancelled $CancellationRequested }
+        if ($total -eq $Offset) { $start = $index }
+        if ([long]$total -eq ([long]$Offset + $Length)) { $end = $index }
+        if ([char]::IsHighSurrogate($Body[$index])) {
+            if ($index + 1 -ge $Body.Length -or -not [char]::IsLowSurrogate($Body[$index + 1])) { Stop-MailLens 'body_unavailable' 'The plain body contains invalid Unicode.' }
+            $index++
+        } elseif ([char]::IsLowSurrogate($Body[$index])) { Stop-MailLens 'body_unavailable' 'The plain body contains invalid Unicode.' }
+        $total++
+    }
+    $returned = 0
+    if ($Offset -lt $total) { $returned = [Math]::Min($Length, $total - $Offset) }
+    return [ordered]@{ body = $Body.Substring($start, $end - $start); bodySource = 'Body'
+        bodyOffsetUnit = 'unicodeScalarValues'; bodyTotalLength = $total; bodyOffset = $Offset
+        bodyLength = $Length; bodyReturnedLength = $returned; bodyTruncated = ([long]$Offset + $returned -lt $total) }
+}
+
+function Read-MailLensDetail {
+    param($Adapter, $Session, $Request, $Context, $Response, $CancellationRequested)
+    $item = $null; $parent = $null; $store = $null
+    $source = [ordered]@{ storeId = $Request.storeId; storeName = $null; folderId = $null; folderPath = $null
+        entryId = $Request.entryId; subject = $null }
+    try {
+        Assert-MailLensNotCancelled $CancellationRequested
+        try { $item = & $Adapter.Method $Session 'GetItemFromID' @($Request.entryId, $Request.storeId) }
+        catch { Stop-MailLens 'item_unavailable' 'The exact storeId/entryId item is stale, deleted, moved or inaccessible.' }
+        try {
+            if ([int](& $Adapter.Property $item 'Class') -ne 43) { Stop-MailLens 'unsupported_item_type' 'The requested item is not a MailItem.' }
+            if ([string](& $Adapter.Property $item 'EntryID') -cne $Request.entryId) { throw 'Mismatched item.' }
+            $parent = & $Adapter.Property $item 'Parent'
+            if ([string](& $Adapter.Property $parent 'StoreID') -cne $Request.storeId) { throw 'Mismatched store.' }
+            $source.folderId = [string](& $Adapter.Property $parent 'EntryID')
+            if ([string]::IsNullOrEmpty($source.folderId)) { throw 'Missing folder identity.' }
+        } catch {
+            if ($_.Exception.Data['MailLensCode'] -eq 'unsupported_item_type') { throw }
+            Stop-MailLens 'item_identity_unavailable' 'The requested item type or exact source identity could not be verified.'
+        }
+        $zone = [TimeZoneInfo]::FindSystemTimeZoneById($Response.data.runtime.timeZone)
+        $modified = Read-MailLensDetailProperty $Adapter $item 'LastModificationTime' $Context $source $zone
+        Assert-MailLensNotCancelled $CancellationRequested
+        try {
+            $body = & $Adapter.Property $item 'Body'
+            if ($body -isnot [string]) { throw 'Missing body.' }
+        } catch { Stop-MailLens 'body_unavailable' 'The requested plain Body is unavailable; it is not an empty body.' }
+        $offset = 0; $length = 20000
+        $names = @($Request.PSObject.Properties.Name)
+        if ('bodyOffset' -in $names) { $offset = $Request.bodyOffset }
+        if ('bodyLength' -in $names) { $length = $Request.bodyLength }
+        $detail = Read-MailLensBodyChunk $body $offset $length $CancellationRequested
+        $detail.source = $source
+        $detail.lastModificationTime = $modified; $detail.lastModificationTimeAfter = $null
+        $detail.consistencyAvailable = ($null -ne $modified); $detail.contentChangedDuringRead = $false
+        $source.subject = Read-MailLensDetailProperty $Adapter $item 'Subject' $Context $source
+        $source.folderPath = Read-MailLensDetailProperty $Adapter $parent 'FolderPath' $Context $source
+        try {
+            $store = & $Adapter.Property $parent 'Store'
+            if ($null -eq $store) { throw 'Unavailable store.' }
+            if ([string](& $Adapter.Property $store 'StoreID') -cne $Request.storeId) { throw 'Changed store.' }
+            $source.storeName = Read-MailLensDetailProperty $Adapter $store 'DisplayName' $Context $source
+        } catch { Add-MailLensProblem $Context 'detail_property_unavailable' 'The current store display metadata is unavailable.' $source }
+        $detail.sender = [ordered]@{ displayName = $null; rawAddress = $null; addressType = $null }
+        foreach ($pair in @(@('SenderName', 'displayName'), @('SenderEmailAddress', 'rawAddress'), @('SenderEmailType', 'addressType'))) {
+            Assert-MailLensNotCancelled $CancellationRequested
+            $detail.sender[$pair[1]] = Read-MailLensDetailProperty $Adapter $item $pair[0] $Context $source
+        }
+        foreach ($pair in @(@('SentOn', 'sentOn'), @('ReceivedTime', 'receivedTime'), @('CreationTime', 'creationTime'))) {
+            $detail[$pair[1]] = Read-MailLensDetailProperty $Adapter $item $pair[0] $Context $source $zone
+        }
+        $recipients = Read-MailLensDetailList $Adapter $item 'Recipients' $Context $source $CancellationRequested
+        $attachments = Read-MailLensDetailList $Adapter $item 'Attachments' $Context $source $CancellationRequested
+        $detail.recipients = $recipients.rows; $detail.recipientsComplete = $recipients.complete
+        $detail.attachmentNames = $attachments.rows; $detail.attachmentNamesComplete = $attachments.complete
+        Assert-MailLensNotCancelled $CancellationRequested
+        try {
+            if ([string](& $Adapter.Property $item 'EntryID') -cne $Request.entryId) { throw 'Changed item.' }
+            Assert-MailLensItemLocation $Adapter $item $source $Context
+        } catch { Stop-MailLens 'item_identity_changed' 'The item source changed during retrieval; reread the current identity.' }
+        $detail.lastModificationTimeAfter = Read-MailLensDetailProperty $Adapter $item 'LastModificationTime' $Context $source $zone
+        if ($null -eq $detail.lastModificationTimeAfter) { $detail.consistencyAvailable = $false }
+        if ($null -ne $modified -and $null -ne $detail.lastModificationTimeAfter -and $modified -cne $detail.lastModificationTimeAfter) {
+            $detail.contentChangedDuringRead = $true; $detail.consistencyAvailable = $false
+            Add-MailLensProblem $Context 'item_content_changed' 'The item changed during retrieval; discard combined chunks and reread.' $source
+        }
+        Assert-MailLensNotCancelled $CancellationRequested
+        $Response.data.detail = $detail
+        $Response.scope = [ordered]@{ stores = @([ordered]@{ storeId = $source.storeId; storeName = $source.storeName })
+            folders = @([ordered]@{ storeId = $source.storeId; folderId = $source.folderId; folderPath = $source.folderPath }) }
+    } finally {
+        Close-MailLensReference $Adapter $store $Context
+        Close-MailLensReference $Adapter $parent $Context
+        Close-MailLensReference $Adapter $item $Context
+    }
+}
+
 function Invoke-MailLensRequest {
     [CmdletBinding()]
     param($Request, $Adapter = (New-MailLensComAdapter), $Runtime = (Get-MailLensRuntime),
@@ -566,8 +750,14 @@ function Invoke-MailLensRequest {
             $response.data.sessionMode = [string]$connection.Mode
             $session = & $Adapter.Method $application 'GetNamespace' @('MAPI')
         } catch { Stop-MailLens 'outlook_unavailable' 'Classic Outlook COM or the current profile is unavailable; allow legitimate prompts or check Classic Outlook installation.' }
-        Read-MailLensCatalog $Adapter $session $context $CancellationRequested
-        $response.scope = Resolve-MailLensScope $Request $context
+        if ($Request.operation -eq 'get') {
+            $response.data.detail = $null
+            Read-MailLensDetail $Adapter $session $Request $context $response $CancellationRequested
+            Assert-MailLensNotCancelled $CancellationRequested
+        } else {
+            Read-MailLensCatalog $Adapter $session $context $CancellationRequested
+            $response.scope = Resolve-MailLensScope $Request $context
+        }
         if ($Request.operation -eq 'search') {
             Read-MailLensSearch $Adapter $session $response.scope $context $search $CancellationRequested
             Assert-MailLensNotCancelled $CancellationRequested
