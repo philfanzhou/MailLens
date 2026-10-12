@@ -346,9 +346,16 @@ Describe 'Atomic UTF-8 request/result files' {
         $exe = Join-Path $PSHOME 'powershell.exe'
         $firstArgs = @('-NoProfile', '-STA', '-File', ('"' + $entrypoint + '"'), '-RequestPath', ('"' + $requestPath + '"'), '-OutputPath', ('"' + $outputPath + '"'))
         $secondArgs = @('-NoProfile', '-STA', '-File', ('"' + $entrypoint + '"'), '-RequestPath', ('"' + $requestPath + '"'), '-OutputPath', ('"' + $otherOutput + '"'))
-        $first = Start-Process $exe -ArgumentList $firstArgs -PassThru -NoNewWindow
-        $second = Start-Process $exe -ArgumentList $secondArgs -PassThru -NoNewWindow
+        # Keep the handles ourselves: Start-Process in PS5.1 can expose null ExitCode.
+        $first = New-Object Diagnostics.Process
+        $first.StartInfo = New-Object Diagnostics.ProcessStartInfo($exe, ($firstArgs -join ' '))
+        $first.StartInfo.UseShellExecute = $false
+        $second = New-Object Diagnostics.Process
+        $second.StartInfo = New-Object Diagnostics.ProcessStartInfo($exe, ($secondArgs -join ' '))
+        $second.StartInfo.UseShellExecute = $false
         try {
+            [void]$first.Start()
+            [void]$second.Start()
             $first.WaitForExit(30000) | Should -BeTrue
             $second.WaitForExit(30000) | Should -BeTrue
             $first.ExitCode | Should -Be 1
@@ -357,6 +364,11 @@ Describe 'Atomic UTF-8 request/result files' {
                 (ConvertFrom-Json ([IO.File]::ReadAllText($path))).errors[0].code | Should -BeExactly 'invalid_request_file'
             }
             @(Get-ChildItem $directory -Force).Count | Should -Be 3
-        } finally { $first.Dispose(); $second.Dispose() }
+        } finally {
+            foreach ($process in @($first, $second)) {
+                if (-not $process.HasExited) { $process.Kill() }
+                $process.Dispose()
+            }
+        }
     }
 }
