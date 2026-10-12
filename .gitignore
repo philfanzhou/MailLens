@@ -1,0 +1,19 @@
+# Local query data and live validation evidence must stay outside Git.
+/requests/
+/results/
+/live-test-evidence/
+/.mail-lens/
+*.request.json
+*.result.json
+
+# Installation receipts, diagnostics and temporary/cache files.
+*.receipt.json
+.mail-lens-receipt.json
+*.log
+*.tmp
+/.cache/
+__pycache__/
+.DS_Store
+
+# Checked-in fixtures must be synthetic; permit their representative filenames.
+!/tests/fixtures/**
