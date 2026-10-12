@@ -28,6 +28,8 @@ function New-MailLensComAdapter {
             switch ($Name) {
                 'GetNamespace' { return ,($Reference.GetNamespace('MAPI')) }
                 'GetRootFolder' { return ,($Reference.GetRootFolder()) }
+                'GetFolderFromID' { return ,($Reference.GetFolderFromID([string]$Arguments[0], [string]$Arguments[1])) }
+                'GetDefaultFolder' { return ,($Reference.GetDefaultFolder([int]$Arguments[0])) }
                 'Item' { return ,($Reference.Item([int]$Arguments[0])) }
                 default { throw 'Unsupported adapter method.' }
             }
@@ -65,12 +67,13 @@ function Assert-MailLensRequest {
         $Request.operation -cnotin @('diagnose', 'folders', 'search', 'get')) {
         Stop-MailLens 'unsupported_operation' 'operation must be diagnose, folders, search or get.'
     }
-    # Search/detail handlers deliberately remain outside this first session slice.
-    if ($Request.operation -in @('search', 'get')) {
+    # Detail remains outside this search slice.
+    if ($Request.operation -eq 'get') {
         Stop-MailLens 'unsupported_operation' 'This operation is not implemented in this version.'
     }
     $allowed = @('schemaVersion', 'operation')
-    if ($Request.operation -eq 'folders') { $allowed += @('mailboxes', 'folders', 'includeDescendants') }
+    if ($Request.operation -in @('folders', 'search')) { $allowed += @('mailboxes', 'folders', 'includeDescendants') }
+    if ($Request.operation -eq 'search') { $allowed += @('fromInclusive', 'toExclusive', 'allHistory', 'keywords', 'keywordGroups', 'listOnly', 'sender', 'summaryLimit') }
     foreach ($name in $names) {
         if ($name -cnotin $allowed) { Stop-MailLens 'invalid_request' 'The request contains an inapplicable or unknown field.' }
     }
@@ -92,6 +95,7 @@ function Assert-MailLensRequest {
             }
         }
     }
+    if ($Request.operation -eq 'search') { Assert-MailLensSearchRequest $Request }
     if ('includeDescendants' -in $names -and $Request.includeDescendants -isnot [bool]) {
         Stop-MailLens 'invalid_request' 'includeDescendants must be a boolean.'
     }
@@ -247,6 +251,286 @@ function Resolve-MailLensScope {
     return [ordered]@{ stores = @($stores); folders = @($folders) }
 }
 
+
+function Convert-MailLensBound {
+    param($Value)
+    if ($Value -isnot [string] -or $Value -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(Z|[+-]\d{2}:\d{2})$') {
+        Stop-MailLens 'invalid_request' 'Date bounds must be full ISO 8601 timestamps with explicit offsets.'
+    }
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        Stop-MailLens 'invalid_request' 'A date bound is invalid.'
+    }
+    return $parsed.ToUniversalTime()
+}
+
+function Assert-MailLensSearchRequest {
+    param($Request)
+    $names = @($Request.PSObject.Properties.Name)
+    foreach ($field in @('allHistory', 'listOnly')) {
+        if ($field -in $names -and $Request.$field -isnot [bool]) { Stop-MailLens 'invalid_request' 'Search mode flags must be booleans.' }
+    }
+    $bounds = @($names | Where-Object { $_ -cin @('fromInclusive', 'toExclusive') })
+    if ($bounds.Count -ne 0 -and $bounds.Count -ne 2) { Stop-MailLens 'invalid_request' 'Supply both date bounds.' }
+    if ('allHistory' -in $names -and $bounds.Count -gt 0) { Stop-MailLens 'invalid_request' 'allHistory and explicit date bounds are mutually exclusive.' }
+    if ($bounds.Count -eq 2) {
+        $from = Convert-MailLensBound $Request.fromInclusive
+        $to = Convert-MailLensBound $Request.toExclusive
+        if ($from -ge $to) { Stop-MailLens 'invalid_request' 'fromInclusive must precede toExclusive.' }
+    }
+    $modes = @($names | Where-Object { $_ -cin @('keywords', 'keywordGroups', 'listOnly') })
+    if ($modes.Count -ne 1 -or ('listOnly' -in $names -and -not $Request.listOnly)) {
+        Stop-MailLens 'invalid_request' 'Choose nonempty keywords, keywordGroups or listOnly true.'
+    }
+    foreach ($field in @('keywords', 'keywordGroups')) {
+        if ($field -notin $names) { continue }
+        $values = $Request.$field
+        if ($values -isnot [array] -or $values.Count -eq 0) { Stop-MailLens 'invalid_request' 'Keyword modes require nonempty arrays.' }
+        foreach ($value in $values) {
+            if ($field -eq 'keywords' -and $value -isnot [string]) { Stop-MailLens 'invalid_request' 'Every keyword must be a literal string.' }
+            $terms = @($value)
+            if ($field -eq 'keywordGroups') {
+                if ($value -isnot [array] -or $value.Count -eq 0) { Stop-MailLens 'invalid_request' 'Each keyword group must be a nonempty array.' }
+                $terms = $value
+            }
+            foreach ($term in $terms) {
+                if ($term -isnot [string] -or [string]::IsNullOrWhiteSpace($term)) { Stop-MailLens 'invalid_request' 'Every keyword must be a nonempty literal string.' }
+            }
+        }
+    }
+    if ('sender' -in $names -and ($Request.sender -isnot [string] -or [string]::IsNullOrWhiteSpace($Request.sender))) {
+        Stop-MailLens 'invalid_request' 'sender must be a nonempty literal string.'
+    }
+    if ('summaryLimit' -in $names -and ($Request.summaryLimit -isnot [int] -or $Request.summaryLimit -lt 1)) {
+        Stop-MailLens 'invalid_request' 'summaryLimit must be a positive integer.'
+    }
+}
+
+function New-MailLensSearchData {
+    param($Request, [DateTimeOffset]$StartedAt, $Runtime)
+    $names = @($Request.PSObject.Properties.Name)
+    $zone = [TimeZoneInfo]::FindSystemTimeZoneById($Runtime.timeZone)
+    $from = $StartedAt.ToUniversalTime().AddDays(-30); $to = $StartedAt.ToUniversalTime()
+    $mode = 'rolling30Days'
+    if ('fromInclusive' -in $names) {
+        $from = Convert-MailLensBound $Request.fromInclusive; $to = Convert-MailLensBound $Request.toExclusive; $mode = 'explicit'
+    }
+    if ('allHistory' -in $names -and $Request.allHistory) { $from = $null; $to = $null; $mode = 'allHistory' }
+    $data = [ordered]@{
+        range = [ordered]@{ mode = $mode; timeZone = $zone.Id; fromInclusive = $null; toExclusive = $null; localFromInclusive = $null; localToExclusive = $null }
+        keywords = @(); keywordGroups = @(); listOnly = ('listOnly' -in $names); sender = $null
+        summaryLimit = 100; matchedCount = 0; returnedCount = 0; resultsTruncated = $false
+        summaries = @(); folderCoverage = New-Object 'System.Collections.Generic.List[object]'
+    }
+    if ($null -ne $from) {
+        $data.range.fromInclusive = $from.ToString('o'); $data.range.toExclusive = $to.ToString('o')
+        $data.range.localFromInclusive = [TimeZoneInfo]::ConvertTime($from, $zone).ToString('o')
+        $data.range.localToExclusive = [TimeZoneInfo]::ConvertTime($to, $zone).ToString('o')
+    }
+    if ('keywords' -in $names) { $data.keywords = @($Request.keywords) }
+    if ('keywordGroups' -in $names) { $data.keywordGroups = @($Request.keywordGroups) }
+    if ('sender' -in $names) { $data.sender = $Request.sender }
+    if ('summaryLimit' -in $names) { $data.summaryLimit = $Request.summaryLimit }
+    return @{ data = $data; zone = $zone; from = $from; to = $to; matches = New-Object 'System.Collections.Generic.List[object]' }
+}
+
+function Read-MailLensSentFolders {
+    param($Adapter, $Session, $Scope, $Context, $CancellationRequested)
+    $sent = @{}; $stores = $null
+    try {
+        $stores = & $Adapter.Property $Session 'Stores'
+        foreach ($row in $Scope.stores) {
+            Assert-MailLensNotCancelled $CancellationRequested
+            $store = $null; $folder = $null
+            try {
+                $store = & $Adapter.Method $stores 'Item' @($row.index)
+                if ([string](& $Adapter.Property $store 'StoreID') -cne $row.storeId) { throw 'Store changed.' }
+                $folder = & $Adapter.Method $store 'GetDefaultFolder' @(5)
+                $ids = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+                if ($null -ne $folder) {
+                    $id = [string](& $Adapter.Property $folder 'EntryID')
+                    if ([string]::IsNullOrEmpty($id)) { throw 'Missing Sent folder identity.' }
+                    [void]$ids.Add($id)
+                    # Follow the full catalog even when only a Sent descendant was selected.
+                    do {
+                        $added = $false
+                        foreach ($candidate in $Context.Folders) {
+                            if ($candidate.storeId -ceq $row.storeId -and $null -ne $candidate.parentFolderId -and $ids.Contains($candidate.parentFolderId)) {
+                                if ($ids.Add($candidate.folderId)) { $added = $true }
+                            }
+                        }
+                    } while ($added)
+                }
+                $sent[$row.storeId] = $ids
+            } catch {
+                if ($_.Exception.Data['MailLensCode'] -eq 'cancelled') { throw }
+                Add-MailLensProblem $Context 'sent_folder_denied' 'The store Sent Items identity is unavailable; sent-mail date classification is incomplete.' $row
+            } finally {
+                Close-MailLensReference $Adapter $folder $Context
+                Close-MailLensReference $Adapter $store $Context
+            }
+        }
+    } finally { Close-MailLensReference $Adapter $stores $Context }
+    return $sent
+}
+
+function Convert-MailLensMailTime {
+    param($Value, $Zone)
+    # Outlook's unset date sentinel is year 4501. Do not parse locale text as dates.
+    if ($Value -isnot [DateTime] -or $Value -le [DateTime]'1601-01-01' -or $Value.Year -ge 4501) { return $null }
+    if ($Value.Kind -eq [DateTimeKind]::Utc) { return [DateTimeOffset]::new($Value) }
+    $local = [DateTime]::SpecifyKind($Value, [DateTimeKind]::Unspecified)
+    if ($Zone.IsInvalidTime($local) -or $Zone.IsAmbiguousTime($local)) {
+        Stop-MailLens 'date_dst_gap' 'An Outlook local timestamp is ambiguous or nonexistent in the Windows timezone.'
+    }
+    return [DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($local, $Zone))
+}
+
+function Read-MailLensEffectiveTime {
+    param($Adapter, $Item, $IsSentFolder, $SentKnown, $Zone)
+    $isSent = & $Adapter.Property $Item 'Sent'
+    if ($isSent -isnot [bool]) { throw 'Invalid Sent flag.' }
+    if (-not $isSent) { $fields = @('CreationTime') }
+    elseif (-not $SentKnown) { throw 'Sent classification unavailable.' }
+    elseif ($IsSentFolder) { $fields = @('SentOn') }
+    else { $fields = @('ReceivedTime', 'SentOn', 'CreationTime') }
+    foreach ($field in $fields) {
+        $value = Convert-MailLensMailTime (& $Adapter.Property $Item $field) $Zone
+        if ($null -ne $value) { return @{ value = $value; field = $field } }
+    }
+    Stop-MailLens 'date_unavailable' 'No valid effective timestamp is available for this mail item.'
+}
+
+function Test-MailLensTerms {
+    param([string]$Subject, [string]$Body, $Data)
+    if ($Data.listOnly) { return $true }
+    $groups = $Data.keywordGroups
+    if ($Data.keywords.Count -gt 0) { $groups = @(,$Data.keywords) }
+    foreach ($group in $groups) {
+        $matched = $false
+        foreach ($term in $group) {
+            if ($Subject.IndexOf($term, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or $Body.IndexOf($term, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $matched = $true; break }
+        }
+        if (-not $matched) { return $false }
+    }
+    return $true
+}
+
+function Assert-MailLensItemLocation {
+    param($Adapter, $Item, $Row, $Context)
+    $parent = $null
+    try {
+        $parent = & $Adapter.Property $Item 'Parent'
+        if ([string](& $Adapter.Property $parent 'EntryID') -cne $Row.folderId -or
+            [string](& $Adapter.Property $parent 'StoreID') -cne $Row.storeId) { throw 'The item moved during retrieval.' }
+    } finally { Close-MailLensReference $Adapter $parent $Context }
+}
+
+function Read-MailLensSearch {
+    param($Adapter, $Session, $Scope, $Context, $Search, $CancellationRequested)
+    $sent = Read-MailLensSentFolders $Adapter $Session $Scope $Context $CancellationRequested
+    foreach ($row in $Scope.folders) {
+        Assert-MailLensNotCancelled $CancellationRequested
+        $coverage = [ordered]@{ storeId = $row.storeId; folderId = $row.folderId; folderPath = $row.folderPath
+            visitedCount = 0; mailItemCount = 0; inRangeCount = 0; matchedCount = 0; unreadableCount = 0; complete = $false }
+        [void]$Search.data.folderCoverage.Add($coverage)
+        $folder = $null; $items = $null
+        $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+        try {
+            if (-not $row.readable) { throw 'Folder metadata unavailable.' }
+            $folder = & $Adapter.Method $Session 'GetFolderFromID' @($row.folderId, $row.storeId)
+            if ([string](& $Adapter.Property $folder 'EntryID') -cne $row.folderId -or
+                [string](& $Adapter.Property $folder 'StoreID') -cne $row.storeId) { throw 'Folder identity changed.' }
+            $items = & $Adapter.Property $folder 'Items'
+            $count = [int](& $Adapter.Property $items 'Count')
+            for ($index = 1; $index -le $count; $index++) {
+                Assert-MailLensNotCancelled $CancellationRequested
+                $item = $null
+                $location = [ordered]@{ storeId = $row.storeId; folderId = $row.folderId; itemIndex = $index; entryId = $null }
+                $coverage.visitedCount++
+                try {
+                    $item = & $Adapter.Method $items 'Item' @($index)
+                    if ([int](& $Adapter.Property $item 'Class') -ne 43) { continue }
+                    $coverage.mailItemCount++
+                    $entryId = [string](& $Adapter.Property $item 'EntryID')
+                    $location.entryId = $entryId
+                    if ([string]::IsNullOrEmpty($entryId) -or -not $seen.Add($entryId)) { throw 'Missing or repeated identity during scan.' }
+                    Assert-MailLensItemLocation $Adapter $item $row $Context
+                    $time = Read-MailLensEffectiveTime $Adapter $item ($sent.ContainsKey($row.storeId) -and $sent[$row.storeId].Contains($row.folderId)) ($sent.ContainsKey($row.storeId)) $Search.zone
+                    if ($null -ne $Search.from -and ($time.value -lt $Search.from -or $time.value -ge $Search.to)) { continue }
+                    $coverage.inRangeCount++
+                    $modified = & $Adapter.Property $item 'LastModificationTime'
+                    $subject = & $Adapter.Property $item 'Subject'
+                    $body = & $Adapter.Property $item 'Body'
+                    if ($subject -isnot [string] -or $body -isnot [string]) { throw 'Plain subject/body unavailable.' }
+                    $sender = $null; $senderMatches = $true
+                    if ($null -ne $Search.data.sender) {
+                        $sender = [ordered]@{ displayName = $null; rawAddress = $null; addressType = $null }
+                        $available = 0; $senderGap = $false
+                        foreach ($pair in @(@('SenderName', 'displayName'), @('SenderEmailAddress', 'rawAddress'), @('SenderEmailType', 'addressType'))) {
+                            try {
+                                $value = & $Adapter.Property $item $pair[0]
+                                if ($value -is [string]) { $sender[$pair[1]] = $value; if ($pair[1] -ne 'addressType') { $available++ } }
+                                else { throw 'Sender property unavailable.' }
+                            } catch { $senderGap = $true; Add-MailLensProblem $Context 'sender_denied' 'Sender metadata is partly unavailable; narrowing coverage is incomplete.' $location }
+                        }
+                        if ($available -eq 0) { throw 'Sender metadata unavailable.' }
+                        if ($senderGap) { $coverage.unreadableCount++ }
+                        $senderMatches = ([string]$sender.displayName).IndexOf($Search.data.sender, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                            ([string]$sender.rawAddress).IndexOf($Search.data.sender, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                    }
+                    Assert-MailLensNotCancelled $CancellationRequested
+                    Assert-MailLensItemLocation $Adapter $item $row $Context
+                    if ([string](& $Adapter.Property $item 'EntryID') -cne $entryId -or
+                        (& $Adapter.Property $item 'LastModificationTime') -ne $modified) { throw 'The item changed during retrieval.' }
+                    if ($senderMatches -and (Test-MailLensTerms $subject $body $Search.data)) {
+                        $coverage.matchedCount++; $Search.data.matchedCount++
+                        $previewLength = [Math]::Min(500, $body.Length)
+                        if ($previewLength -gt 0 -and [char]::IsHighSurrogate($body[$previewLength - 1])) { $previewLength-- }
+                        [void]$Search.matches.Add([ordered]@{ storeId = $row.storeId; storeName = $row.storeName
+                            folderId = $row.folderId; folderPath = $row.folderPath; entryId = $entryId; subject = $subject
+                            timestamp = $time.value.ToUniversalTime().ToString('o'); timestampField = $time.field
+                            preview = $body.Substring(0, $previewLength); previewSource = 'Body'; sender = $sender })
+                    }
+                } catch {
+                    if ($_.Exception.Data['MailLensCode'] -eq 'cancelled') { throw }
+                    $coverage.unreadableCount++
+                    $code = $_.Exception.Data['MailLensCode']; if ($null -eq $code) { $code = 'item_unavailable' }
+                    Add-MailLensProblem $Context $code 'A mail item could not be evaluated reliably; search coverage is incomplete.' $location
+                } finally { Close-MailLensReference $Adapter $item $Context }
+            }
+            if ([int](& $Adapter.Property $items 'Count') -ne $count) { throw 'The item collection changed during scan.' }
+            $coverage.complete = ($coverage.unreadableCount -eq 0)
+        } catch {
+            if ($_.Exception.Data['MailLensCode'] -eq 'cancelled') { throw }
+            $coverage.unreadableCount++
+            Add-MailLensProblem $Context 'search_folder_denied' 'The selected folder or its item collection is unavailable or changed; search coverage is incomplete.' $row
+        } finally {
+            Close-MailLensReference $Adapter $items $Context
+            Close-MailLensReference $Adapter $folder $Context
+        }
+    }
+}
+
+function Complete-MailLensSearchData {
+    param($Search)
+    $comparison = [System.Comparison[object]]{
+        param($left, $right)
+        $order = [StringComparer]::Ordinal.Compare($right.timestamp, $left.timestamp)
+        if ($order -ne 0) { return $order }
+        foreach ($field in @('storeId', 'folderId', 'entryId')) {
+            $order = [StringComparer]::Ordinal.Compare($left[$field], $right[$field])
+            if ($order -ne 0) { return $order }
+        }
+        return 0
+    }
+    $Search.matches.Sort($comparison)
+    $Search.data.returnedCount = [Math]::Min($Search.data.summaryLimit, $Search.matches.Count)
+    $Search.data.summaries = @($Search.matches.ToArray() | Select-Object -First $Search.data.returnedCount)
+    $Search.data.resultsTruncated = ($Search.data.matchedCount -gt $Search.data.returnedCount)
+    $Search.data.folderCoverage = @($Search.data.folderCoverage.ToArray())
+}
+
 function Invoke-MailLensRequest {
     [CmdletBinding()]
     param($Request, $Adapter = (New-MailLensComAdapter), $Runtime = (Get-MailLensRuntime),
@@ -264,13 +548,17 @@ function Invoke-MailLensRequest {
         scope = [ordered]@{ stores = @(); folders = @() }; warnings = @(); errors = @()
         data = [ordered]@{ runtime = $Runtime; sessionMode = $null; stores = @(); folders = @(); coverage = $null }
     }
-    $application = $null; $session = $null
+    $application = $null; $session = $null; $search = $null
     try {
         Assert-MailLensRequest $Request
         $response.operation = $Request.operation
         if (-not $Runtime.isWindows) { Stop-MailLens 'unsupported_platform' 'MailLens requires native Windows.' }
         if ($Runtime.edition -cne 'Desktop' -or $Runtime.powerShellVersion -notmatch '^5\.1\.') { Stop-MailLens 'unsupported_powershell' 'MailLens requires Windows PowerShell 5.1.' }
         if ($Runtime.apartmentState -cne 'STA') { Stop-MailLens 'unsupported_apartment' 'Launch powershell.exe with -NoProfile -STA.' }
+        if ($Request.operation -eq 'search') {
+            $search = New-MailLensSearchData $Request $StartedAt $Runtime
+            $response.data.search = $search.data
+        }
         Assert-MailLensNotCancelled $CancellationRequested
         try {
             $connection = & $Adapter.Connect
@@ -280,6 +568,10 @@ function Invoke-MailLensRequest {
         } catch { Stop-MailLens 'outlook_unavailable' 'Classic Outlook COM or the current profile is unavailable; allow legitimate prompts or check Classic Outlook installation.' }
         Read-MailLensCatalog $Adapter $session $context $CancellationRequested
         $response.scope = Resolve-MailLensScope $Request $context
+        if ($Request.operation -eq 'search') {
+            Read-MailLensSearch $Adapter $session $response.scope $context $search $CancellationRequested
+            Assert-MailLensNotCancelled $CancellationRequested
+        }
         $response.status = 'complete'
         if ($context.Problems.Count -gt 0) { $response.status = 'partial' }
         if ($context.StoreCount -gt 0 -and @($context.Stores.ToArray() | Where-Object { $_.readable }).Count -eq 0) { $response.status = 'failed' }
@@ -294,6 +586,7 @@ function Invoke-MailLensRequest {
     } finally {
         Close-MailLensReference $Adapter $session $context
         Close-MailLensReference $Adapter $application $context
+        if ($null -ne $search) { Complete-MailLensSearchData $search }
         $response.data.stores = @($context.Stores.ToArray())
         $response.data.folders = @($context.Folders.ToArray())
         $response.data.coverage = [ordered]@{
