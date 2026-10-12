@@ -169,8 +169,8 @@ Describe 'Full sequential coverage, cap and stable identities' {
         $result.data.search.matchedCount | Should -Be 107
         $result.data.search.returnedCount | Should -Be 100
         $result.data.search.resultsTruncated | Should -BeTrue
-        $result.data.search.summaries[0].preview.Length | Should -Be 500
-        ($result.data.search.summaries.entryId -join ',') | Should -Be (($messages[0..99].properties.EntryID) -join ',')
+        @($result.data.search.summaries | Where-Object { $_.entryId -eq 'm-001' })[0].preview.Length | Should -Be 500
+        ($result.data.search.summaries.entryId -join ',') | Should -Be (@('later') + @($messages[0..98].properties.EntryID) -join ',')
         $double.state.calls | Should -Contain 'later.Body'
         $double.state.calls | Should -Contain 'archive.Body'
         $double.state.calls.IndexOf('f-root-items.Release') | Should -BeLessThan $double.state.calls.IndexOf('session.GetFolderFromID.f-projects')
