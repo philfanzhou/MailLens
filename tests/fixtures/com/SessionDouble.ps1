@@ -1,4 +1,20 @@
 ﻿# Synthetic identities only. Unexpected properties/methods fail closed.
+if (-not ('MailLens.Tests.Reference' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System.Collections;
+namespace MailLens.Tests {
+    public sealed class Reference {
+        public string refId { get; private set; }
+        public string kind { get; private set; }
+        public Hashtable properties { get; private set; }
+        public Hashtable methods { get; private set; }
+        public Reference(string id, string type, Hashtable values, Hashtable calls) {
+            refId = id; kind = type; properties = values; methods = calls;
+        }
+    }
+}
+'@
+}
 function New-SessionDouble {
     param([string]$Mode = 'existing', [hashtable]$Failures = @{}, [switch]$Empty, [switch]$DuplicateNames)
     $state = @{
@@ -8,7 +24,7 @@ function New-SessionDouble {
         failures = $Failures; mode = $Mode; connections = 0
     }
     function Node($id, $kind, $properties, $methods) {
-        @{ refId = $id; kind = $kind; properties = $properties; methods = $methods }
+        [MailLens.Tests.Reference]::new($id, $kind, $properties, $methods)
     }
     function Folder($id, $path, $type, $children) {
         $collection = Node ($id + '-children') 'collection' @{ Count = $children.Count } @{ Item = $children }
@@ -47,7 +63,7 @@ function New-SessionDouble {
             if ($state.failures.ContainsKey($key)) { throw 'Synthetic property denied.' }
             if (-not $Reference.properties.ContainsKey($Name)) { throw 'Forbidden/unexpected property.' }
             $value = $Reference.properties[$Name]
-            if ($value -is [hashtable] -and $value.ContainsKey('refId')) { [void]$state.acquired.Add($value.refId) }
+            if ($value -is [MailLens.Tests.Reference]) { [void]$state.acquired.Add($value.refId) }
             return ,$value
         }.GetNewClosure()
         Method = {

@@ -7,6 +7,17 @@
 }
 
 Describe 'Read-only session and folder catalog' {
+    It 'makes direct setters and forbidden COM calls fail, as well as unexpected adapter calls' {
+        $double = New-SessionDouble
+        { $double.state.root.UnRead = $false } | Should -Throw
+        { $double.state.root.Save() } | Should -Throw
+        { $double.state.root.Display() } | Should -Throw
+        { $double.state.root.SaveAsFile('unwanted') } | Should -Throw
+        { $double.state.application.Quit() } | Should -Throw
+        { & $double.adapter.Method $double.state.root 'Move' @('unwanted') } | Should -Throw
+        { & $double.adapter.Property $double.state.root 'Body' } | Should -Throw
+        $double.state.acquired.Count | Should -Be 0
+    }
     It 'discovers all mounted stores and nested, custom, deleted and junk folders in deterministic order' {
         $double = New-SessionDouble
         $result = Invoke-MailLensRequest (Request) $double.adapter $native
@@ -149,7 +160,6 @@ Describe 'Failure, cancellation and reference ownership' {
         Assert-AllReleased $double
     }
     It 'fails when all root metadata is unreadable despite acquiring the roots' {
-        $double = New-SessionDouble -Empty
         # Replace the mounted store collection with only one wholly denied root.
         $ordinary = New-SessionDouble -Failures @{ 'f-root.FolderPath' = $true; 'store-b.GetRootFolder' = $true }
         $ordinary.state.root.properties.Folders.methods.Item = @()
