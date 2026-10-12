@@ -290,7 +290,7 @@ Describe 'Denied/stale data, cancellation and read-only behavior' {
 Describe 'Invalid requests and selectors before body scanning' {
     It 'rejects malformed search <Extra> before COM' -ForEach @(
         @{ Extra = '' }, @{ Extra = ',"keywords":[]' }, @{ Extra = ',"keywords":[""]' }, @{ Extra = ',"keywords":[null]' },
-        @{ Extra = ',"keywords":"a"' }, @{ Extra = ',"keywordGroups":[]' }, @{ Extra = ',"keywordGroups":[[]]' },
+        @{ Extra = ',"keywords":[["a"]]' }, @{ Extra = ',"keywords":"a"' }, @{ Extra = ',"keywordGroups":[]' }, @{ Extra = ',"keywordGroups":[[]]' },
         @{ Extra = ',"keywordGroups":["a"]' }, @{ Extra = ',"keywordGroups":[[1]]' },
         @{ Extra = ',"listOnly":false' }, @{ Extra = ',"listOnly":"true"' }, @{ Extra = ',"keywords":["a"],"listOnly":true' },
         @{ Extra = ',"keywords":["a"],"keywordGroups":[["a"]]' }, @{ Extra = ',"listOnly":true,"allHistory":"true"' },
@@ -320,5 +320,95 @@ Describe 'Invalid requests and selectors before body scanning' {
         $result.status | Should -Be failed
         @($double.state.calls | Where-Object { $_ -match '\.Body$' }).Count | Should -Be 0
         Assert-AllReleased $double
+    }
+}
+
+
+Describe 'Additional timestamp, Unicode and final cancellation boundaries' {
+    It 'does not substitute fallback dates for the required <Branch> timestamp' -ForEach @(@{ Branch = 'draft' }, @{ Branch = 'sent' }) {
+        $mail = New-SyntheticMail
+        $double = New-SearchDouble @{ 'f-root' = @($mail) }
+        if ($Branch -eq 'draft') { $mail.properties.Sent = $false; $mail.properties.CreationTime = [DateTime]'4501-01-01' }
+        else { $double.state.stores[0].methods.GetDefaultFolder = $double.state.root; $mail.properties.SentOn = [DateTime]'4501-01-01' }
+        $result = Search $double
+        $result.status | Should -Be partial
+        $result.data.search.matchedCount | Should -Be 0
+        $result.warnings.code | Should -Contain date_unavailable
+        $double.state.calls | Should -Not -Contain 'm-1.ReceivedTime'
+        Assert-AllReleased $double
+    }
+    It 'keeps bounded plain-Body previews valid when a surrogate pair crosses the limit' {
+        $double = New-SearchDouble @{ 'f-root' = @(New-SyntheticMail -Body (('x' * 499) + '📮' + 'end')) }
+        $result = Search $double
+        $result.status | Should -Be complete
+        $result.data.search.summaries[0].preview.Length | Should -Be 499
+        ([Text.UTF8Encoding]::new($false, $true)).GetBytes($result.data.search.summaries[0].preview).Length | Should -Be 499
+        Assert-AllReleased $double
+    }
+    It 'honors cancellation requested after the final folder release before marking complete' {
+        $double = New-SearchDouble @{ 'f-root' = @(New-SyntheticMail) }
+        $state = $double.state
+        $cancel = { $state.calls.Contains('f-archive-items.Release') }.GetNewClosure()
+        $result = Search $double ',"listOnly":true' $native $cancel
+        $result.status | Should -Be cancelled
+        $result.data.coverage.complete | Should -BeFalse
+        Assert-AllReleased $double
+    }
+    It 'keeps sender denial a counted per-folder coverage gap even when another field matches' {
+        $double = New-SearchDouble @{ 'f-root' = @(New-SyntheticMail) } @{ 'm-1.SenderName' = $true }
+        $result = Search $double ',"listOnly":true,"sender":"/ou=test"'
+        $result.status | Should -Be partial
+        $result.data.search.matchedCount | Should -Be 1
+        $result.data.search.folderCoverage[0].unreadableCount | Should -Be 1
+        $result.data.search.folderCoverage[0].complete | Should -BeFalse
+        Assert-AllReleased $double
+    }
+}
+
+Describe 'Concurrent synthetic search file publication' {
+    It 'runs two independent queries with unique UTF-8 outputs and no shared search state' {
+        $directory = Join-Path $TestDrive ([Guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($directory)
+        $request = Join-Path $directory 'request.json'
+        $firstOutput = Join-Path $directory 'first.json'; $secondOutput = Join-Path $directory 'second.json'
+        [IO.File]::WriteAllText($request, '{"schemaVersion":1,"operation":"search","allHistory":true,"keywords":["合同"]}', [Text.UTF8Encoding]::new($false))
+        $driver = Join-Path $directory 'driver.ps1'
+        $script = @'
+param($Source, $Request, $Output, $Marker)
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $Source 'skills/mail-lens/scripts/MailLens.Outlook.psm1') -Force
+. (Join-Path $Source 'tests/fixtures/com/SessionDouble.ps1')
+. (Join-Path $Source 'tests/fixtures/com/SearchDouble.ps1')
+$double = New-SearchDouble @{ 'f-root' = @(New-SyntheticMail -Body ('合同 ' + $Marker)) }
+$native = @{ isWindows = $true; powerShellVersion = '5.1.26100.33438'; edition = 'Desktop'; apartmentState = 'STA'; timeZone = 'UTC' }
+$code = Invoke-MailLensFileRequest $Request $Output $double.adapter $native
+if (($double.state.acquired.ToArray() | Sort-Object) -join '|' -cne ($double.state.released.ToArray() | Sort-Object) -join '|') { throw 'Reference imbalance' }
+exit $code
+'@
+        [IO.File]::WriteAllText($driver, $script, [Text.UTF8Encoding]::new($true))
+        $source = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+        $processes = @()
+        try {
+            foreach ($pair in @(@($firstOutput, 'first📮'), @($secondOutput, 'second📮'))) {
+                $arguments = @('-NoProfile', '-STA', '-File', ('"' + $driver + '"'), '-Source', ('"' + $source + '"'), '-Request', ('"' + $request + '"'), '-Output', ('"' + $pair[0] + '"'), '-Marker', ('"' + $pair[1] + '"'))
+                $process = [Diagnostics.Process]::new()
+                $process.StartInfo = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'powershell.exe'), ($arguments -join ' '))
+                $process.StartInfo.UseShellExecute = $false
+                $processes += $process
+                [void]$process.Start()
+            }
+            foreach ($process in $processes) { $process.WaitForExit(30000) | Should -BeTrue; $process.ExitCode | Should -Be 0 }
+            foreach ($pair in @(@($firstOutput, 'first📮'), @($secondOutput, 'second📮'))) {
+                [IO.File]::ReadAllBytes($pair[0])[0] | Should -Be 123
+                $result = ConvertFrom-Json ([IO.File]::ReadAllText($pair[0], [Text.Encoding]::UTF8))
+                $result.status | Should -Be complete
+                $result.data.search.matchedCount | Should -Be 1
+                $result.data.search.summaries[0].preview | Should -BeExactly ('合同 ' + $pair[1])
+            }
+            @(Get-ChildItem $directory -Filter '*.maillens-lock').Count | Should -Be 0
+            @(Get-ChildItem $directory -Filter '.maillens-*.tmp' -Force).Count | Should -Be 0
+        } finally {
+            foreach ($process in $processes) { if (-not $process.HasExited) { $process.Kill() }; $process.Dispose() }
+        }
     }
 }

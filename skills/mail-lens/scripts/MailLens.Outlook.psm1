@@ -287,6 +287,7 @@ function Assert-MailLensSearchRequest {
         $values = $Request.$field
         if ($values -isnot [array] -or $values.Count -eq 0) { Stop-MailLens 'invalid_request' 'Keyword modes require nonempty arrays.' }
         foreach ($value in $values) {
+            if ($field -eq 'keywords' -and $value -isnot [string]) { Stop-MailLens 'invalid_request' 'Every keyword must be a literal string.' }
             $terms = @($value)
             if ($field -eq 'keywordGroups') {
                 if ($value -isnot [array] -or $value.Count -eq 0) { Stop-MailLens 'invalid_request' 'Each keyword group must be a nonempty array.' }
@@ -567,7 +568,10 @@ function Invoke-MailLensRequest {
         } catch { Stop-MailLens 'outlook_unavailable' 'Classic Outlook COM or the current profile is unavailable; allow legitimate prompts or check Classic Outlook installation.' }
         Read-MailLensCatalog $Adapter $session $context $CancellationRequested
         $response.scope = Resolve-MailLensScope $Request $context
-        if ($Request.operation -eq 'search') { Read-MailLensSearch $Adapter $session $response.scope $context $search $CancellationRequested }
+        if ($Request.operation -eq 'search') {
+            Read-MailLensSearch $Adapter $session $response.scope $context $search $CancellationRequested
+            Assert-MailLensNotCancelled $CancellationRequested
+        }
         $response.status = 'complete'
         if ($context.Problems.Count -gt 0) { $response.status = 'partial' }
         if ($context.StoreCount -gt 0 -and @($context.Stores.ToArray() | Where-Object { $_.readable }).Count -eq 0) { $response.status = 'failed' }
