@@ -59,7 +59,7 @@ Describe 'Pinned OpenCode native isolated discovery' {
         Write-DiscoveryText $env:OPENCODE_CONFIG "{}`n"
         $version = Invoke-CIProcess $env:MAIL_LENS_OPENCODE @('--version') $script:Project
         if ($version.Code -ne 0 -or $version.Out.Trim() -cne '1.18.30') { throw 'Unexpected OpenCode version.' }
-        Write-Output "Native OpenCode version: $($version.Out.Trim())."
+        Write-Host "Native OpenCode version: $($version.Out.Trim())."
     }
     AfterEach {
         foreach ($key in $script:SavedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($key, $script:SavedEnvironment[$key], 'Process') }
@@ -104,10 +104,11 @@ Describe 'Pinned OpenCode native isolated discovery' {
         [void][IO.Directory]::CreateDirectory($other)
         Write-DiscoveryText (Join-Path $other 'SKILL.md') "---`nname: synthetic-other`ndescription: Synthetic sentinel`n---`nSynthetic preserved skill.`n"
         $config = Join-Path $script:Project '.opencode/opencode.json'; Write-DiscoveryText $config "{}`n"
-        $configBefore = [IO.File]::ReadAllBytes($config)
         $otherBefore = Get-DiscoverySnapshot $other
         $winner = @(Get-DiscoveredSkills | Where-Object name -CEQ 'mail-lens')
         $winner.Count | Should -Be 1
+        # OpenCode may normalize its synthetic config; snapshot after discovery.
+        $configBefore = [IO.File]::ReadAllBytes($config)
         @((Join-Path $script:Target 'SKILL.md'), (Join-Path $globalTarget 'SKILL.md')) | Should -Contain ([IO.Path]::GetFullPath($winner[0].location))
         (Invoke-Installer 'Uninstall').Code | Should -Be 0
         [IO.Directory]::Exists($script:Target) | Should -BeFalse
