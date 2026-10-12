@@ -642,7 +642,7 @@ function Read-MailLensDetail {
     param($Adapter, $Session, $Request, $Context, $Response, $CancellationRequested)
     $item = $null; $parent = $null; $store = $null
     $source = [ordered]@{ storeId = $Request.storeId; storeName = $null; folderId = $null; folderPath = $null
-        entryId = $Request.entryId; subject = $null }
+        entryId = $Request.entryId; subject = $null; timestamp = $null; timestampField = 'LastModificationTime' }
     try {
         Assert-MailLensNotCancelled $CancellationRequested
         try { $item = & $Adapter.Method $Session 'GetItemFromID' @($Request.entryId, $Request.storeId) }
@@ -660,6 +660,7 @@ function Read-MailLensDetail {
         }
         $zone = [TimeZoneInfo]::FindSystemTimeZoneById($Response.data.runtime.timeZone)
         $modified = Read-MailLensDetailProperty $Adapter $item 'LastModificationTime' $Context $source $zone
+        $source.timestamp = $modified
         Assert-MailLensNotCancelled $CancellationRequested
         try {
             $body = & $Adapter.Property $item 'Body'
@@ -706,8 +707,8 @@ function Read-MailLensDetail {
         }
         Assert-MailLensNotCancelled $CancellationRequested
         $Response.data.detail = $detail
-        $Response.scope = [ordered]@{ stores = @([ordered]@{ storeId = $source.storeId; storeName = $source.storeName })
-            folders = @([ordered]@{ storeId = $source.storeId; folderId = $source.folderId; folderPath = $source.folderPath }) }
+        $Response.scope = [ordered]@{ stores = @([ordered]@{ storeId = $source.storeId; storeName = $source.storeName; readable = $true })
+            folders = @([ordered]@{ storeId = $source.storeId; folderId = $source.folderId; folderPath = $source.folderPath; readable = $true }) }
     } finally {
         Close-MailLensReference $Adapter $store $Context
         Close-MailLensReference $Adapter $parent $Context
