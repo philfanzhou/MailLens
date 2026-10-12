@@ -20,7 +20,7 @@ jobs:
         job: [windows-tests, opencode-discovery]
     defaults:
       run:
-        shell: powershell.exe -NoProfile -STA -Command ". '{0}'"
+        shell: powershell
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.1
         with:
@@ -32,5 +32,5 @@ jobs:
           CI_SOURCE: source-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.job }}
           CI_RUN: mail-lens-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.job }}
         run: |
-          & (Join-Path $env:GITHUB_WORKSPACE "$env:CI_SOURCE/scripts/run-ci.ps1") -Job $env:CI_JOB -RunRoot (Join-Path $env:RUNNER_TEMP $env:CI_RUN)
+          & powershell.exe -NoProfile -STA -File (Join-Path $env:GITHUB_WORKSPACE "$env:CI_SOURCE/scripts/run-ci.ps1") -Job $env:CI_JOB -RunRoot (Join-Path $env:RUNNER_TEMP $env:CI_RUN)
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
