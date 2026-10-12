@@ -9,8 +9,8 @@ Outlook, call a model, publish a release or change repository protection.
 
 ## Reproduce a job
 
-From native Windows, use a fixed source checkout and a new absolute directory
-outside Git. The helper refuses to reuse an existing run directory:
+From native Windows, use a [verified fixed source checkout](versioned-installation.md)
+and a new absolute directory outside Git. The helper refuses to reuse an existing run directory:
 
 ```powershell
 powershell.exe -NoProfile -STA -File C:\MailLens\scripts\run-ci.ps1 `
