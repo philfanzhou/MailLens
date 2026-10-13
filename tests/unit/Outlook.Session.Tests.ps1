@@ -3,7 +3,11 @@
     Import-Module $modulePath -Force
     . (Join-Path $PSScriptRoot '../fixtures/com/SessionDouble.ps1')
     $native = @{ isWindows = $true; powerShellVersion = '5.1.26100.33438'; edition = 'Desktop'; apartmentState = 'STA'; timeZone = 'Synthetic Standard Time' }
-    function Request($extra = '') { ConvertFrom-Json ('{"schemaVersion":1,"operation":"folders"' + $extra + '}') }
+    function Request($extra = '') {
+        if ($extra -eq '') { $extra = ',"allMailboxes":true,"includeDescendants":true' }
+        elseif ($extra -notmatch 'includeDescendants') { $extra += ',"includeDescendants":true' }
+        ConvertFrom-Json ('{"schemaVersion":2,"operation":"folders"' + $extra + '}')
+    }
 }
 
 Describe 'Read-only session and folder catalog' {
@@ -44,10 +48,10 @@ Describe 'Read-only session and folder catalog' {
         $result.data.folders.folderId | Should -Contain 'f-calendar-mail'
         Assert-AllReleased $double
     }
-    It 'handles no mounted stores as a complete empty catalog' {
+    It 'reports no trustworthy target for an empty mounted-store selection' {
         $double = New-SessionDouble -Empty
         $result = Invoke-MailLensRequest (Request) $double.adapter $native
-        $result.status | Should -Be complete
+        $result.status | Should -Be failed
         $result.data.stores.Count | Should -Be 0
         $result.data.folders.Count | Should -Be 0
         Assert-AllReleased $double
@@ -74,7 +78,7 @@ Describe 'Read-only session and folder catalog' {
     }
     It 'diagnoses using a serializable native/runtime/session envelope' {
         $double = New-SessionDouble
-        $result = Invoke-MailLensRequest (ConvertFrom-Json '{"schemaVersion":1,"operation":"diagnose"}') $double.adapter $native
+        $result = Invoke-MailLensRequest (ConvertFrom-Json '{"schemaVersion":2,"operation":"diagnose"}') $double.adapter $native
         $result.status | Should -Be complete
         $result.data.runtime.apartmentState | Should -BeExactly 'STA'
         $result.startedAt | Should -Not -BeNullOrEmpty
@@ -98,7 +102,7 @@ Describe 'Exact scope resolution' {
         $result.status | Should -Be failed
         $result.errors[0].code | Should -BeExactly 'ambiguous_selection'
         $result.data.stores.storeId | Should -Contain 's-b'
-        $result.scope.stores.Count | Should -Be 0
+        $result.scope.stores.Count | Should -Be 2
         Assert-AllReleased $double
     }
     It 'never broadens an unknown mailbox/folder or a folder outside selected stores' -ForEach @(
@@ -110,7 +114,7 @@ Describe 'Exact scope resolution' {
         $result = Invoke-MailLensRequest (Request $Extra) $double.adapter $native
         $result.status | Should -Be failed
         $result.errors[0].code | Should -BeExactly 'unknown_selection'
-        $result.scope.folders.Count | Should -Be 0
+        @($double.state.calls | Where-Object { $_ -match '\.Items$' }).Count | Should -Be 0
         Assert-AllReleased $double
     }
     It 'selects a folder identity with explicit <Descendants> descendants' -ForEach @(@{ Descendants = 'true'; Count = 2 }, @{ Descendants = 'false'; Count = 1 }) {
@@ -125,13 +129,14 @@ Describe 'Exact scope resolution' {
         $double = New-SessionDouble
         $result = Invoke-MailLensRequest (Request ',"folders":["\\\\工作📮\\Projects"]') $double.adapter $native
         $result.status | Should -Be complete
-        $result.scope.folders.Count | Should -Be 2
+        $result.scope.requested.folders[0] | Should -BeExactly '\\工作📮\Projects'
+        $double.state.calls | Should -Not -Contain 'store-b.GetRootFolder'
         Assert-AllReleased $double
     }
     It 'rejects ambiguous exact paths while preserving the identity choices' {
         $double = New-SessionDouble
         $double.state.archiveRoot.properties.FolderPath = '\\工作📮\Projects'
-        $result = Invoke-MailLensRequest (Request ',"folders":["\\\\工作📮\\Projects"]') $double.adapter $native
+        $result = Invoke-MailLensRequest (Request ',"mailboxes":["s-a","s-b"],"folders":["\\\\工作📮\\Projects"]') $double.adapter $native
         $result.errors[0].code | Should -BeExactly 'ambiguous_selection'
         Assert-AllReleased $double
     }
@@ -165,8 +170,8 @@ Describe 'Failure, cancellation and reference ownership' {
         $ordinary.state.root.properties.Folders.methods.Item = @()
         $ordinary.state.root.properties.Folders.properties.Count = 0
         $result = Invoke-MailLensRequest (Request) $ordinary.adapter $native
-        $result.status | Should -Be failed
-        $result.data.coverage.readableFolders | Should -Be 0
+        $result.status | Should -Be partial
+        $result.data.coverage.readableFolders | Should -Be 1
         Assert-AllReleased $ordinary
     }
     It 'reports an explicitly selected denied store as failed with its gap' {
@@ -217,17 +222,17 @@ Describe 'Failure, cancellation and reference ownership' {
 
 Describe 'Validation before Outlook' {
     It 'rejects invalid request <Json> without connecting' -ForEach @(
-        @{ Json = 'null' }, @{ Json = '[]' }, @{ Json = '{"schemaVersion":2,"operation":"folders"}' },
-        @{ Json = '{"schemaVersion":"1","operation":"folders"}' }, @{ Json = '{"schemaVersion":1,"operation":"Folders"}' },
-        @{ Json = '{"schemaVersion":1,"operation":"unknown"}' }, @{ Json = '{"schemaVersion":1,"operation":"search","listOnly":false}' },
-        @{ Json = '{"schemaVersion":1,"operation":"get"}' }, @{ Json = '{"schemaVersion":1,"operation":"diagnose","mailboxes":["s-a"]}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","unknown":true}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","mailboxes":[]}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","mailboxes":"s-a"}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","mailboxes":[null]}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","folders":[{"folderId":"f-root"}]}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","folders":[{"storeId":"s-a","folderId":"f-root","path":"x"}]}' },
-        @{ Json = '{"schemaVersion":1,"operation":"folders","includeDescendants":"false"}' }
+        @{ Json = 'null' }, @{ Json = '[]' }, @{ Json = '{"schemaVersion":1,"operation":"folders"}' },
+        @{ Json = '{"schemaVersion":"1","operation":"folders"}' }, @{ Json = '{"schemaVersion":2,"operation":"Folders"}' },
+        @{ Json = '{"schemaVersion":2,"operation":"unknown"}' }, @{ Json = '{"schemaVersion":2,"operation":"search","listOnly":false}' },
+        @{ Json = '{"schemaVersion":2,"operation":"get"}' }, @{ Json = '{"schemaVersion":2,"operation":"diagnose","mailboxes":["s-a"]}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","unknown":true}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","mailboxes":[]}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","mailboxes":"s-a"}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","mailboxes":[null]}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","folders":[{"folderId":"f-root"}]}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","folders":[{"storeId":"s-a","folderId":"f-root","path":"x"}]}' },
+        @{ Json = '{"schemaVersion":2,"operation":"folders","includeDescendants":"false"}' }
     ) {
         $double = New-SessionDouble
         $request = ConvertFrom-Json $Json
@@ -256,7 +261,7 @@ Describe 'Atomic UTF-8 request/result files' {
         [void][IO.Directory]::CreateDirectory($directory)
         $requestPath = Join-Path $directory 'request.json'
         $outputPath = Join-Path $directory 'result.json'
-        [IO.File]::WriteAllText($requestPath, '{"schemaVersion":1,"operation":"folders"}', (New-Object Text.UTF8Encoding($false)))
+        [IO.File]::WriteAllText($requestPath, '{"schemaVersion":2,"operation":"folders"}', (New-Object Text.UTF8Encoding($false)))
         $double = New-SessionDouble
     }
     It 'writes a parseable Unicode response, no BOM and no leftover temp/lock' {
@@ -276,13 +281,13 @@ Describe 'Atomic UTF-8 request/result files' {
         $double.state.connections | Should -Be 0
     }
     It 'accepts an optional UTF-8 request BOM' {
-        [IO.File]::WriteAllText($requestPath, '{"schemaVersion":1,"operation":"folders"}', (New-Object Text.UTF8Encoding($true)))
+        [IO.File]::WriteAllText($requestPath, '{"schemaVersion":2,"operation":"folders"}', (New-Object Text.UTF8Encoding($true)))
         (Invoke-MailLensFileRequest $requestPath $outputPath $double.adapter $native) | Should -Be 0
         Assert-AllReleased $double
     }
     It 'rejects malformed UTF-8 and UTF-16 input before COM' -ForEach @(@{ Encoding = 'malformed' }, @{ Encoding = 'utf16' }) {
         if ($Encoding -eq 'malformed') { [IO.File]::WriteAllBytes($requestPath, [byte[]]@(123, 0xFF, 125)) }
-        else { [IO.File]::WriteAllText($requestPath, '{"schemaVersion":1,"operation":"folders"}', [Text.Encoding]::Unicode) }
+        else { [IO.File]::WriteAllText($requestPath, '{"schemaVersion":2,"operation":"folders"}', [Text.Encoding]::Unicode) }
         (Invoke-MailLensFileRequest $requestPath $outputPath $double.adapter $native) | Should -Be 1
         $double.state.connections | Should -Be 0
     }
@@ -324,7 +329,7 @@ Describe 'Atomic UTF-8 request/result files' {
         Assert-AllReleased $double
     }
     It 'maps partial and cancelled responses into result files and exit codes' {
-        $double = New-SessionDouble -Failures @{ 'f-projects.Folders' = $true }
+        $double = New-SessionDouble -Failures @{ 'f-root.Folders' = $true }
         (Invoke-MailLensFileRequest $requestPath $outputPath $double.adapter $native) | Should -Be 2
         [IO.File]::Delete($outputPath)
         (Invoke-MailLensFileRequest $requestPath $outputPath $double.adapter $native { $true }) | Should -Be 130

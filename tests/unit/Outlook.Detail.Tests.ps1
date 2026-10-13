@@ -5,7 +5,7 @@
     . (Join-Path $PSScriptRoot '../fixtures/com/DetailDouble.ps1')
     $native = @{ isWindows = $true; powerShellVersion = '5.1.26100.33438'; edition = 'Desktop'; apartmentState = 'STA'; timeZone = 'UTC' }
     function DetailRequest($Extra = '', $Store = 's-a', $Id = 'm-1') {
-        ConvertFrom-Json ('{"schemaVersion":1,"operation":"get","storeId":"' + $Store + '","entryId":"' + $Id + '"' + $Extra + '}')
+        ConvertFrom-Json ('{"schemaVersion":2,"operation":"get","storeId":"' + $Store + '","entryId":"' + $Id + '"' + $Extra + '}')
     }
     function Detail($Double, $Extra = '', $Cancel = { $false }) {
         Invoke-MailLensRequest (DetailRequest $Extra) $Double.adapter $native $Cancel
@@ -272,10 +272,10 @@ Describe 'Modification consistency, cancellation and validation' {
         Assert-AllReleased $double
     }
     It 'rejects absent/invalid ID fields <Json> before COM' -ForEach @(
-        @{ Json = '{"schemaVersion":1,"operation":"get"}' },
-        @{ Json = '{"schemaVersion":1,"operation":"get","storeId":"","entryId":"m-1"}' },
-        @{ Json = '{"schemaVersion":1,"operation":"get","storeId":"s-a","entryId":1}' },
-        @{ Json = '{"schemaVersion":1,"operation":"get","storeId":null,"entryId":"m-1"}' }
+        @{ Json = '{"schemaVersion":2,"operation":"get"}' },
+        @{ Json = '{"schemaVersion":2,"operation":"get","storeId":"","entryId":"m-1"}' },
+        @{ Json = '{"schemaVersion":2,"operation":"get","storeId":"s-a","entryId":1}' },
+        @{ Json = '{"schemaVersion":2,"operation":"get","storeId":null,"entryId":"m-1"}' }
     ) {
         $double = New-DetailDouble
         $result = Invoke-MailLensRequest (ConvertFrom-Json $Json) $double.adapter $native
