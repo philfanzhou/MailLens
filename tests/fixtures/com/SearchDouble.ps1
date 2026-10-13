@@ -35,28 +35,39 @@ function New-SearchDouble {
             $key = $Reference.refId + '.Restrict'; [void]$state.calls.Add($key)
             if ($state.failures.ContainsKey($key)) { throw 'Synthetic unsupported date filter.' }
             $filter = [string]$Arguments[0]; [void]$state.filters.Add($filter)
-            $literals = [regex]::Matches($filter, "'((?:[^']|'')*)'")
-            if ($literals.Count -ne 6) { throw 'Unexpected date union.' }
+            # Parse every clause of the emitted predicate; no candidates are added
+            # just because the exact evaluator would consider their dates invalid.
+            $clause = '\("(?<property>[^"\r\n]+)" >= ''(?<from>(?:[^'']|'''')*)'' AND "\k<property>" < ''(?<to>(?:[^'']|'''')*)''\) OR ' +
+                '\("\k<property>" IS NULL OR "\k<property>" <= ''(?<invalidLower>(?:[^'']|'''')*)'' OR "\k<property>" >= ''(?<invalidUpper>(?:[^'']|'''')*)''\)'
+            $clauses = [regex]::Matches($filter, $clause)
+            if ($clauses.Count -ne 3 -or ('@SQL=' + (($clauses | ForEach-Object { $_.Value }) -join ' OR ')) -cne $filter) { throw 'Unexpected date union.' }
+            $fields = @{'urn:schemas:httpmail:datereceived'='ReceivedTime';'urn:schemas:httpmail:date'='SentOn';'http://schemas.microsoft.com/mapi/proptag/0x30070040'='CreationTime'}
             $culture = [Globalization.CultureInfo]::CurrentCulture
-            $from = [DateTime]::SpecifyKind([DateTime]::Parse($literals[0].Groups[1].Value.Replace("''", "'"), $culture), [DateTimeKind]::Utc)
-            $to = [DateTime]::SpecifyKind([DateTime]::Parse($literals[1].Groups[1].Value.Replace("''", "'"), $culture), [DateTimeKind]::Utc)
             $zone = [TimeZoneInfo]::FindSystemTimeZoneById($state.timeZone)
             $values = @($Reference.methods.Item | Where-Object {
                 $mail = $_; $included = $false
-                if ($mail.properties.Class -ne 43) { $included = $true }
-                foreach ($field in @('ReceivedTime', 'SentOn', 'CreationTime')) {
+                foreach ($part in $clauses) {
+                    $field = $fields[$part.Groups['property'].Value]
+                    if ($null -eq $field) { throw 'Unexpected date property.' }
                     $date = $mail.properties[$field]
-                    if ($date -is [DateTime] -and $date.Year -gt 1601 -and $date.Year -lt 4501) {
-                        if ($date.Kind -ne [DateTimeKind]::Utc) {
-                            $local = [DateTime]::SpecifyKind($date, [DateTimeKind]::Unspecified)
-                            if ($zone.IsInvalidTime($local) -or $zone.IsAmbiguousTime($local)) { $included = $true; continue }
-                            $date = [TimeZoneInfo]::ConvertTimeToUtc($local, $zone)
+                    # Outlook exposes an unset (null) date as its 4501 sentinel.
+                    if ($null -eq $date -or $date -eq [DateTime]'4501-01-01') { $included = $true; continue }
+                    if ($date -isnot [DateTime]) { throw 'Synthetic provider date must be DateTime or null.' }
+                    if ($date.Kind -ne [DateTimeKind]::Utc) {
+                        # Synthetic provider storage uses a deterministic offset;
+                        # exact evaluation still rejects ambiguous/nonexistent COM dates.
+                        $local = [DateTime]::SpecifyKind($date, [DateTimeKind]::Unspecified)
+                        if ($date -gt [DateTime]'1601-01-01' -and $date.Year -lt 4501) {
+                            $date = [DateTime]::SpecifyKind($local.Subtract($zone.GetUtcOffset($local)), [DateTimeKind]::Utc)
                         }
-                        if ($date -ge $from -and $date -lt $to) { $included = $true }
                     }
+                    $bounds = @{}
+                    foreach ($name in @('from','to','invalidLower','invalidUpper')) {
+                        $bounds[$name] = [DateTime]::SpecifyKind([DateTime]::Parse($part.Groups[$name].Value.Replace("'" + "'", "'"), $culture), [DateTimeKind]::Utc)
+                    }
+                    if (($date -ge $bounds.from -and $date -lt $bounds.to) -or $date -le $bounds.invalidLower -or $date -ge $bounds.invalidUpper) { $included = $true }
                 }
-                # Invalid timestamps stay candidates so the exact evaluator discloses their gap.
-                if (@('ReceivedTime','SentOn','CreationTime') | Where-Object { $mail.properties[$_] -is [DateTime] -and $mail.properties[$_].Year -gt 1601 -and $mail.properties[$_].Year -lt 4501 }) { $included } else { $true }
+                $included
             })
             $value = [MailLens.Tests.Reference]::new(($Reference.refId + '-restricted'), 'items', @{ Count = $values.Count }, @{ Item = $values })
             [void]$state.acquired.Add($value.refId); return ,$value

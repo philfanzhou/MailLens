@@ -556,7 +556,7 @@ function Read-MailLensQuery {
                     [void]$targets.Add(@{ kind = 'identity'; selector = $selector; store = $null })
                 }
             }
-            $paths = @{}
+            $paths = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
             foreach ($selector in $Request.folders) { if ($selector -is [string] -and -not $paths.ContainsKey($selector)) { $paths[$selector] = New-Object 'System.Collections.Generic.List[object]' } }
             if ($paths.Count -gt 0) {
                 $Context.WalkSeen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
@@ -856,8 +856,14 @@ function New-MailLensDateFilter {
     $pattern = $culture.DateTimeFormat.ShortDatePattern + ' ' + $culture.DateTimeFormat.ShortTimePattern
     $lower = $from.ToString($pattern, $culture).Replace("'", "''")
     $upper = $to.ToString($pattern, $culture).Replace("'", "''")
+    # Preserve null/unset candidate fields as well as in-range dates. Any
+    # candidate field can be the effective date for drafts, Sent mail or the fallback.
+    # A day of padding also covers local/UTC offsets at the invalid boundaries.
+    $invalidLower = ([DateTime]::new(1601, 1, 2)).ToString($pattern, $culture).Replace("'", "''")
+    $invalidUpper = ([DateTime]::new(4500, 12, 31)).ToString($pattern, $culture).Replace("'", "''")
     $parts = foreach ($property in @('urn:schemas:httpmail:datereceived', 'urn:schemas:httpmail:date', 'http://schemas.microsoft.com/mapi/proptag/0x30070040')) {
-        '("' + $property + '" >= ''' + $lower + ''' AND "' + $property + '" < ''' + $upper + ''')'
+        '("' + $property + '" >= ''' + $lower + ''' AND "' + $property + '" < ''' + $upper + ''') OR ' +
+            '("' + $property + '" IS NULL OR "' + $property + '" <= ''' + $invalidLower + ''' OR "' + $property + '" >= ''' + $invalidUpper + ''')'
     }
     return '@SQL=' + ($parts -join ' OR ')
 }

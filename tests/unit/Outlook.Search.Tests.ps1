@@ -649,3 +649,103 @@ Describe 'Schema 2 bounded query invariants' {
         Assert-AllReleased $double
     }
 }
+
+
+Describe 'Required review coverage regressions' {
+    It 'keeps case-distinct exact paths for <Operation> in <Order> order with <Presence> targets' -ForEach @(
+        foreach ($operation in @('search','folders')) {
+            foreach ($reverse in @($false,$true)) {
+                foreach ($missing in @($false,$true)) {
+                    @{Operation=$operation;Reverse=$reverse;Missing=$missing;Order=$(if($reverse){'reversed'}else{'forward'});Presence=$(if($missing){'one missing'}else{'both existing'})}
+                }
+            }
+        }
+    ) {
+        $double=New-SearchDouble @{'f-projects'=@(New-SyntheticMail -Id upper);'f-junk'=@(New-SyntheticMail -Id lower)}
+        $double.state.folderMap['f-projects'].properties.FolderPath='SyntheticPath'
+        $double.state.folderMap['f-junk'].properties.FolderPath=$(if($Missing){'OtherPath'}else{'syntheticpath'})
+        $paths=@('SyntheticPath','syntheticpath'); if($Reverse){$paths=@('syntheticpath','SyntheticPath')}
+        $request=[pscustomobject]@{schemaVersion=[int]2;operation=$Operation;folders=$paths;includeDescendants=$false}
+        if($Operation -eq 'search') {$request | Add-Member listOnly $true; $request | Add-Member allHistory $true}
+        $result=Invoke-MailLensRequest $request $double.adapter $native -Progress {}
+        if($Missing) {
+            $result.status | Should -Be failed
+            $result.errors.code | Should -Contain unknown_selection
+            @($double.state.calls | Where-Object {$_ -match '\.Items$|GetFolderFromID'}).Count | Should -Be 0
+        } else {
+            $result.status | Should -Be complete
+            $double.state.calls | Should -Contain 'session.GetFolderFromID.f-projects'
+            $double.state.calls | Should -Contain 'session.GetFolderFromID.f-junk'
+            $result.data.folders.folderPath | Should -Contain 'SyntheticPath'
+            $result.data.folders.folderPath | Should -Contain 'syntheticpath'
+            if($Operation -eq 'search') {
+                $result.data.search.matchedCount | Should -Be 2
+                $result.data.search.matchedCountIsExact | Should -BeTrue
+                @($result.data.search.folderCoverage).Count | Should -Be 2
+                ($result.data.search.summaries.entryId -join ',') | Should -BeExactly 'lower,upper'
+            }
+        }
+        # One auxiliary Sent-folder classification is allowed for successful search.
+        @($double.state.calls | Where-Object {$_ -eq 'store-a.GetDefaultFolder'}).Count | Should -Be $(if($Operation -eq 'search' -and -not $Missing){1}else{0})
+        Assert-AllReleased $double
+    }
+    It 'preserves <Dates> date gaps in filtered and fallback scans under <Culture>' -ForEach @(
+        foreach($culture in @('en-US','zh-CN')) {
+            foreach($dates in @('all sentinel','all missing','all absent','all minimum','all future','draft missing','Sent sentinel')) {
+                @{Culture=$culture;Dates=$dates}
+            }
+        }
+    ) {
+        $old=[Threading.Thread]::CurrentThread.CurrentCulture
+        try {
+            [Threading.Thread]::CurrentThread.CurrentCulture=[Globalization.CultureInfo]::GetCultureInfo($Culture)
+            foreach($fallback in @($false,$true)) {
+                $gap=New-SyntheticMail -Id gap -Received ([DateTime]::new(2000,1,1,0,0,0,[DateTimeKind]::Utc))
+                switch($Dates) {
+                    'all sentinel' {foreach($field in @('ReceivedTime','SentOn','CreationTime')){$gap.properties[$field]=[DateTime]'4501-01-01'}}
+                    'all missing' {foreach($field in @('ReceivedTime','SentOn','CreationTime')){$gap.properties[$field]=$null}}
+                    'all absent' {foreach($field in @('ReceivedTime','SentOn','CreationTime')){$gap.properties.Remove($field)}}
+                    'all future' {foreach($field in @('ReceivedTime','SentOn','CreationTime')){$gap.properties[$field]=[DateTime]'4502-01-01'}}
+                    'all minimum' {foreach($field in @('ReceivedTime','SentOn','CreationTime')){$gap.properties[$field]=[DateTime]::MinValue}}
+                    'draft missing' {$gap.properties.Sent=$false;$gap.properties.CreationTime=$null}
+                    'Sent sentinel' {$gap.properties.SentOn=[DateTime]'4501-01-01'}
+                }
+                $good=New-SyntheticMail -Id good
+                $outside=New-SyntheticMail -Id outside -Received ([DateTime]::new(2000,1,1,0,0,0,[DateTimeKind]::Utc))
+                $failures=@{};if($fallback){$failures['f-projects-items.Restrict']=$true}
+                $double=New-SearchDouble @{'f-projects'=@($gap,$good,$outside)} $failures
+                if($Dates -eq 'Sent sentinel') {$double.state.stores[0].methods.GetSentFolder=$double.state.folderMap['f-projects']}
+                $result=Search $double ',"listOnly":true,"exhaustive":true,"folders":[{"storeId":"s-a","folderId":"f-projects"}],"includeDescendants":false,"fromInclusive":"2026-10-01T20:00:00+08:00","toExclusive":"2026-10-01T20:00:01+08:00"'
+                $result.status | Should -Be partial
+                $gapCode=$(if($Dates -eq 'all absent'){'item_unavailable'}else{'date_unavailable'})
+                $result.warnings.code | Should -Contain $gapCode
+                ($result.warningSummary | Where-Object {$_.code -eq $gapCode}).count | Should -Be 1
+                $result.data.search.summaries.entryId | Should -Be good
+                $result.data.search.matchedCount | Should -Be 1
+                $result.data.search.matchedCountIsExact | Should -BeFalse
+                $result.data.search.folderCoverage[0].complete | Should -BeFalse
+                $result.data.search.folderCoverage[0].dateFilter | Should -Be $(if($fallback){'boundedFallback'}else{'coarseUtcUnion'})
+                $result.data.search.visitedCount | Should -Be $(if($fallback){3}else{2})
+                @($double.state.calls | Where-Object {$_ -eq 'f-projects-items.Restrict'}).Count | Should -Be 1
+                @($double.state.calls | Where-Object {$_ -match '\.Body$'}).Count | Should -Be 0
+                Assert-AllReleased $double
+            }
+        } finally {[Threading.Thread]::CurrentThread.CurrentCulture=$old}
+    }
+    It 'counts invalid-date candidates against the same finite global item budget' {
+        $messages=@(1..1000 | ForEach-Object {
+            $mail=New-SyntheticMail -Id ('unset-'+$_)
+            foreach($field in @('ReceivedTime','SentOn','CreationTime')){$mail.properties[$field]=$null}
+            $mail
+        })
+        $double=New-SearchDouble @{'f-root'=$messages}
+        $result=Search $double ',"listOnly":true,"maxItems":3,"exhaustive":true'
+        $result.status | Should -Be partial
+        $result.data.search.stopReason | Should -Be item_budget
+        $result.data.search.visitedCount | Should -Be 3
+        $result.data.search.matchedCountIsExact | Should -BeFalse
+        ($result.warningSummary | Where-Object {$_.code -eq 'date_unavailable'}).count | Should -Be 3
+        $double.state.calls | Should -Not -Contain 'unset-4.Class'
+        Assert-AllReleased $double
+    }
+}
