@@ -1,9 +1,9 @@
 # Windows installation and lifecycle
 
 MailLens targets OpenCode on native Windows, Classic Outlook and Windows
-PowerShell 5.1. The source `VERSION` is the target package version; `0.1.0` is an
-**unpublished development baseline**, not an available release. This page covers
-the installer from [issue #6](https://github.com/philfanzhou/MailLens/issues/6).
+PowerShell 5.1. The source `VERSION` is the target package version; `0.1.0-rc.1`
+is an **unpublished prerelease candidate**, not an available release. This page
+covers the installer from [issue #6](https://github.com/philfanzhou/MailLens/issues/6).
 The [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract)
 defines the skill and query interfaces.
 

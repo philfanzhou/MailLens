@@ -3,9 +3,13 @@
 A read-only OpenCode skill for searching and analyzing Classic Outlook email on
 native Windows through local COM automation.
 
-MailLens has **no published release**. Root [VERSION](VERSION) is `0.1.0`, an
-unpublished development baseline. A source commit can be selected for development;
-there is no available `v0.1.0` release or release download to install.
+MailLens has **no published release**. Root [VERSION](VERSION) is `0.1.0-rc.1`,
+an unpublished prerelease candidate prepared for the Windows testing channel
+under [issue #25](https://github.com/philfanzhou/MailLens/issues/25). No
+`v0.1.0-rc.1` tag or Release exists yet; a reviewed main commit may become a
+publication candidate only through the
+[authorized release procedure](docs/releasing.md), and there is no stable
+`v0.1.0` release or release download to install.
 
 ## Prerequisites and installation
 

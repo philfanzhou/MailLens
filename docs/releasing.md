@@ -1,11 +1,16 @@
 # Future manually authorized source releases
 
 MailLens currently has no published release. Root [VERSION](../VERSION) contains
-`0.1.0`, an **unpublished development baseline**. This document and the
-[blank notes template](releases/TEMPLATE.md) are publication inputs, not evidence
-that any version/tag/Release exists. [Issue #11](https://github.com/philfanzhou/MailLens/issues/11)
-owns publication; it follows [live validation #9](https://github.com/philfanzhou/MailLens/issues/9)
+`0.1.0-rc.1`, an **unpublished prerelease candidate** prepared for the Windows
+testing channel under
+[issue #25](https://github.com/philfanzhou/MailLens/issues/25). This document,
+the [blank notes template](releases/TEMPLATE.md) and the
+[prepared RC notes input](releases/v0.1.0-rc.1.md) are publication inputs, not
+evidence that any version/tag/Release exists. [Issue #11](https://github.com/philfanzhou/MailLens/issues/11)
+owns stable publication; it follows [live validation #9](https://github.com/philfanzhou/MailLens/issues/9)
 and [documentation #10](https://github.com/philfanzhou/MailLens/issues/10).
+A prerelease RC channel may be published before #9 only under #25's recorded
+maintainer direction; the channel gates below keep the two channels separate.
 
 Use the [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract),
 [project conventions](../CONTRIBUTING.md#version-and-protected-branches) and the
@@ -16,7 +21,9 @@ No commit or CI success automatically authorizes a tag or Release.
 
 ## Approve and validate one final commit
 
-Before publication, persist the following in #11 using sanitized English evidence:
+Before publication, persist the following using sanitized English evidence in
+#11, or in the task that owns the channel (the RC under
+[issue #25](https://github.com/philfanzhou/MailLens/issues/25) while it is open):
 
 1. Explicit maintainer decision for the final version and exact full reviewed
    main commit SHA, plus **separate explicit authorization to publish**. Root
@@ -26,21 +33,36 @@ Before publication, persist the following in #11 using sanitized English evidenc
    assessment, complete package/installer and installation/update/rollback/removal
    validation. Required main checks `windows-tests` and `opencode-discovery` must
    actually pass on that **exact main SHA**, under effective strict protection.
-3. Actual native Windows/OpenCode/Classic Outlook evidence and #9 human signoff
-   for that exact candidate, including read-only before/after state and model
-   assessment limits. Hosted COM doubles/discovery do not supply live signoff.
-   Keep live content and identifiers private, outside Git/public logs.
-4. Final English notes completed from the blank template with evidence links,
-   full SHA, platform/version scope, limitations, compatibility/migration and
+3. Final English notes completed from the blank template (or the prepared RC
+   notes input for a prerelease channel) with evidence links, full SHA,
+   platform/version scope, limitations, compatibility/migration and
    [fixed installation](versioned-installation.md) / [lifecycle](installation.md)
    links. Use links pinned to the selected commit in public notes.
+4. The channel gate for that exact version:
+   - **Prerelease RC channel** (for example `v0.1.0-rc.1` under #25's recorded
+     maintainer direction): completed #9 live validation is deliberately **not**
+     a prerequisite. Pending #9 is an acknowledged RC limitation recorded in the
+     notes, and the RC exists to supply the fixed candidate for #9. Synthetic
+     hosted checks and discovery still do not certify live behavior, and the
+     notes must present the #9 evidence row as pending.
+   - **Stable channel** (for example `v0.1.0`): requires completed #9 with
+     actual native Windows/OpenCode/Classic Outlook evidence and human signoff
+     for that exact candidate, including read-only before/after state and model
+     assessment limits. Hosted COM doubles/discovery do not supply live signoff.
+     Keep live content and identifiers private, outside Git/public logs.
 
 Any final change, even documentation/version metadata, changes the commit.
-Assess/revalidate affected paths and obtain exact-candidate evidence/signoff on
-the resulting final SHA before publishing; do not silently reuse evidence for a
-different commit. Record review head, merge SHA and exact-main CI separately.
-A source commit cannot contain its own final SHA: prepare notes externally after
-selecting the final commit, rather than making another commit to insert its SHA.
+Assess/revalidate affected paths and obtain the channel gate's exact-candidate
+evidence/signoff on the resulting final SHA before publishing; do not silently
+reuse evidence for a different commit. Promoting an RC line to stable (for
+example `0.1.0-rc.1` to `0.1.0`) therefore requires separate maintainer
+direction, a reviewed VERSION-change PR and fresh assessment/revalidation plus
+#9 signoff on the new SHA; RC evidence does not carry over. Record review head,
+merge SHA and exact-main CI separately. A source commit cannot contain its own
+final SHA: prepare notes externally after selecting the final commit, rather
+than making another commit to insert its SHA. If published source needs a fix,
+prepare a reviewed fix and a newly authorized version (for example
+`v0.1.0-rc.2`); never move, overwrite or recreate a published tag.
 
 ## Read-only preflight
 
@@ -127,8 +149,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Release creation failed/unknown; read back bef
 if ($LASTEXITCODE -ne 0) { throw 'Release readback failed.' }
 ```
 
-For a maintainer-approved prerelease channel, add `--prerelease` to creation and
-verify that channel on readback. `--verify-tag` requires the pre-existing remote
+A prerelease RC channel (for example `v0.1.0-rc.1` under #25) must add
+`--prerelease` to creation and verify that channel on readback.
+`--verify-tag` requires the pre-existing remote
 tag instead of permitting implicit tag creation from latest main. Check tagName
 and title equal `$tag`, `isDraft:false`, the intended prerelease status, notes'
 full SHA/evidence/links and the actual returned URL. Re-read the remote annotated
@@ -140,7 +163,7 @@ a pushed tag alone or a draft as delivery.
 
 | Observed state | Next step under existing authorization |
 | --- | --- |
-| Required checks/live signoff/version/publish approval missing | Keep #11 open with exact missing evidence; do not tag/publish. |
+| Required checks/version/publish approval missing (stable channel additionally: #9 live signoff) | Keep the owning issue open with exact missing evidence; do not tag/publish. |
 | Permission/network/API failure or unknown write outcome | Query the remote tag/Release before retry. If unreadable, stop with the blocker; never assume success or absence. |
 | Local tag exists, remote absent | Verify annotation/object and exact SHA against the approved record; push only that verified ref. Do not recreate a tag to hide a mismatch. |
 | Remote tag exists, Release absent | Verify annotation/peeled SHA and approvals. Retain that tag; retry only the matching Release creation with `--verify-tag`. |
