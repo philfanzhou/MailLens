@@ -3,13 +3,14 @@
 A read-only OpenCode skill for searching and analyzing Classic Outlook email on
 native Windows through local COM automation.
 
-MailLens has **no published release**. Root [VERSION](VERSION) is `0.1.0-rc.1`,
-an unpublished prerelease candidate prepared for the Windows testing channel
-under [issue #25](https://github.com/philfanzhou/MailLens/issues/25). No
-`v0.1.0-rc.1` tag or Release exists yet; a reviewed main commit may become a
-publication candidate only through the
-[authorized release procedure](docs/releasing.md), and there is no stable
-`v0.1.0` release or release download to install.
+The [published `v0.1.0-rc.1` prerelease](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+contains historical schema 1 source at `3298df822d8ebbe03f63df56213f59c898fa356e`.
+The current source implements schema 2 and the bounded workflow below; it is
+**untagged development source**, even though root [VERSION](VERSION) still reads
+`0.1.0-rc.1`. Choose a trusted exact source commit for this workflow; the version
+string alone does not distinguish these packages. No stable `v0.1.0` or newer
+candidate is published. Further publication requires the
+[authorized release procedure](docs/releasing.md).
 
 ## Prerequisites and installation
 
@@ -149,10 +150,15 @@ backups or residue; read it before touching a reported conflict.
 
 ## Search and analyze
 
-In OpenCode, ask to use MailLens, for example: “Use MailLens to summarize the
-Starbridge contract correspondence from the last 30 days, with sources.” Search
-reads subject/plain Body across mounted readable stores and folders, including
-Deleted Items/Junk; attachment access is limited to filenames. The
+In OpenCode, ask “Use MailLens to show my Inbox mail” for a direct ten-subject
+browse, then select any needed bodies. For keyword questions, ask “Use MailLens
+to summarize the Starbridge contract correspondence from the last 30 days, with
+sources.” This starts bounded search in the default Inbox, without descendants;
+selected/all-mounted scope, including readable Deleted/Junk mail, must be explicit.
+Neither route performs routine diagnose or full-directory preflight. The agent
+initially projects at most ten needed summaries, keeps identities locally and
+requests a selected body's first 2000 scalar values. Attachment access is limited
+to filenames. The
 [usage guide](docs/usage.md) explains scope, time, terms, partial results, citations
 and troubleshooting. The installed [Chinese skill instructions](skills/mail-lens/SKILL.md)
 provide the agent's workflow.

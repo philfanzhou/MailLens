@@ -63,10 +63,12 @@ language for project instructions.
 ## Version and protected branches
 
 [VERSION](VERSION) is the single source target version and currently contains
-`0.1.0-rc.1`, an **unpublished prerelease candidate** prepared for the Windows
-testing channel under
-[issue #25](https://github.com/philfanzhou/MailLens/issues/25)'s recorded
-maintainer direction. No published tag or Release is implied or exists yet.
+`0.1.0-rc.1`. The immutable [published prerelease](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+at `3298df822d8ebbe03f63df56213f59c898fa356e` uses schema 1; current schema 2
+source is newer, untagged development content with the same target version.
+The exact source commit and package hashes distinguish it from the historical
+release. The prior [issue #25](https://github.com/philfanzhou/MailLens/issues/25)
+authorization does not authorize another version or publication.
 Do not duplicate a current version in independent manifests or
 bump it automatically; every version change requires explicit maintainer direction.
 
@@ -84,8 +86,9 @@ record the exact reviewed and validated commit SHA, create an annotated tag only
 for that commit, dereference the remote tag back to that SHA, and associate a
 matching non-draft GitHub source Release with the existing tag. Never move,
 overwrite or recreate a published tag; fix a release with a new authorized version.
-MailLens release notes remain English. Detailed installation/release commands
-belong to the later documentation task; none are available at this baseline.
+MailLens release notes remain English. Installation commands are in
+[the lifecycle guide](docs/installation.md);
+future publication gates are in [the release guide](docs/releasing.md).
 
 ## Changes and evidence
 

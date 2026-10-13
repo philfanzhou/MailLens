@@ -10,8 +10,11 @@ is authoritative; this guide explains using the existing behavior.
 
 ## Read a few Inbox subjects first
 
-For a small first read, use the installed fixed launcher with this structured
-request in a unique external run directory:
+“Show my Inbox mail” begins directly with browse, without diagnose, a directory
+catalog or all-mounted search. Keyword/date/listing questions begin with bounded
+search in the authorized scope, without redundant browse. For a small first read,
+use the installed fixed launcher with this structured request in a unique
+external run directory:
 
 ```json
 {"schemaVersion":2,"operation":"browse","limit":10}
@@ -52,8 +55,10 @@ All query operations use schema 2. Schema 1 and unknown versions fail before
 COM with `unsupported_schema`. Update or roll back the complete owned package,
 restart OpenCode and create new requests/results; never mix scripts/instructions
 or reuse old results. Installer receipt schema 1 is a separate format and is
-unchanged. The complete model consumption workflow is tracked in
-[#31](https://github.com/philfanzhou/MailLens/issues/31).
+unchanged. The published rc.1 remains schema 1 at
+`3298df822d8ebbe03f63df56213f59c898fa356e`; this schema 2 workflow needs a trusted
+current-source commit. VERSION is unchanged and no newer release is implied.
+Rolling back the complete package to rc.1 restores the older protocol/defaults.
 
 ## Ask in OpenCode
 
@@ -99,7 +104,10 @@ returned address type rather than inventing SMTP addresses. Explicit listing
 uses `listOnly`; empty keywords are invalid, not an unrestricted listing.
 
 Selectors use exact store display names/IDs and exact folder paths/identities
-returned by discovery. Duplicate names require an exact identity. Unknown or
+already available from private results or the user's selection. Use folders only
+when resolving an unknown/ambiguous selection actually needs a bounded catalog;
+known names, paths and identities do not require another discovery call.
+Duplicate names require an exact identity. Unknown or
 unreadable selections produce an explicit error/gap; they do not silently become
 Inbox or all stores. Folder identity alone selects its store. `includeDescendants`
 follows the defaults above and the user's explicit choice.
@@ -157,6 +165,30 @@ new coverage gap; raw COM exception text is excluded. The exit codes are 0 compl
 There is no pagination cursor. A forcibly terminated host blocked inside COM may
 leave no final result. Search is not a coherent mailbox snapshot.
 
+## Select only needed model context
+
+Inspect the new envelope, requested/resolved scope, effective range/terms,
+coverage, exactness/stop reason and aggregate warnings before mail content.
+The [PowerShell extraction example](../skills/mail-lens/references/commands.md#selective-result-projection)
+strictly decodes UTF-8, validates schema/operation/status/exit, and prints only an
+allowlisted view with at most ten initially selected summaries. It keeps exact
+IDs, original rows and raw files in private local variables/files; no whole
+catalog, per-folder coverage list, warning location samples or private index is
+printed. Show selected display sources, omitted summary/location counts and
+aggregate gaps. Add a needed preview only as an excerpt. Projection limits do
+not change traversal completeness or mean unshown records are irrelevant.
+
+Stop the automatic retrieval loop on the first stalled host or missing/invalid
+new result, or a repeated denied-access path. Report the last safe stage,
+counts/elapsed time and unknown coverage; never reuse old output, retry a denied
+path, increase every limit or run all mailbox scans to fill a gap. Budget/summary
+limits and cancellation end that attempt with a qualified answer. If wider
+coverage is already authorized and necessary, deliberately choose a bounded next
+query and disclose its purpose/scope; ordinary retrieval needs no repeated
+approval. Seek only a genuinely missing scope decision. There is no resume or
+pagination guarantee. Keep loaded references and unchanged results locally;
+provide only new needed records/chunks instead of repeating catalogs/body history.
+
 ## Bodies, attachment names and sources
 
 Read relevant bodies by their exact `(storeId, entryId)` pair. A preview is only
@@ -166,8 +198,12 @@ replace it by matching subject.
 If a verified item moved, disclose its current folder.
 
 Body chunks use Unicode scalar values (`bodyOffsetUnit: unicodeScalarValues`),
-not bytes, UTF-16 string length or visible glyphs. Default length is 20000,
-maximum 100000. Advance by returned offset plus `bodyReturnedLength`. Merge only
+not bytes, UTF-16 string length or visible glyphs. The skill explicitly requests
+`bodyOffset:0, bodyLength:2000` for a selected body's first excerpt. The unchanged
+runtime default is 20000 and maximum 100000; omit neither the initial length nor
+its truncation disclosure. Read additional records/chunks only when needed for
+the answer, with a deliberate bounded size. Advance by returned offset plus
+`bodyReturnedLength`. Merge only
 contiguous chunks with matching identity/current source/total length and usable,
 unchanged before/after modification times, including across chunks. If time is
 unavailable, content changes or offset stops advancing, discard the combined
@@ -227,7 +263,7 @@ Outlook history.
 | Missing, invalid or existing result path | Choose a fresh absolute result path in the owned external run directory, check local permission and inspect the error; do not overwrite unrelated files or log bodies. |
 | Execution-policy failure | Report the current policy limitation to the user/administrator. Do not use bypass flags or change machine/user policy. |
 | Missing/duplicate skill or edited receipt | Check loaded location and selected scope, restart after lifecycle changes, and use [installation conflict/recovery guidance](installation.md#ownership-and-conflicts). Preserve other roots and edits. |
-| Partial/capped results or changed body | Apply the coverage/chunk rules above; narrow scope or increase summaries only within authorization. Never fabricate an exhaustive account. |
+| Partial/capped results or changed body | Report useful evidence and the gap; a necessary authorized expansion is deliberate and bounded. Do not automatically rescan/increase limits or fabricate an exhaustive account. |
 
 Native synthetic tests and pinned CLI discovery are documented in
 [development checks](development.md). They do not certify live Classic Outlook
