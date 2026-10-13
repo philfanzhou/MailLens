@@ -44,7 +44,7 @@ function New-SessionDouble {
     if ($Empty) { $values = @() }
     $stores = Node 'stores' 'collection' @{ Count = $values.Count } @{ Item = $values }
     $session = Node 'session' 'session' @{ Stores = $stores } @{}
-    $app = Node 'application' 'application' @{} @{ GetNamespace = $session }
+    $app = Node 'application' 'application' @{ Version = '16.0' } @{ GetNamespace = $session }
     $state.application = $app
     $state.root = $root
     $state.archiveRoot = $archiveRoot
@@ -63,7 +63,7 @@ function New-SessionDouble {
             if ($state.failures.ContainsKey($key)) { throw 'Synthetic property denied.' }
             if (-not $Reference.properties.ContainsKey($Name)) { throw 'Forbidden/unexpected property.' }
             $value = $Reference.properties[$Name]
-            if ($value -is [MailLens.Tests.Reference]) { [void]$state.acquired.Add($value.refId) }
+            if ($value -is [MailLens.Tests.Reference]) { if ($null -ne $value) { [void]$state.acquired.Add($value.refId) } }
             return ,$value
         }.GetNewClosure()
         Method = {
@@ -77,7 +77,7 @@ function New-SessionDouble {
                 if ($Arguments[0] -lt 1) { throw 'COM collections are 1-based.' }
                 $value = $Reference.methods.Item[$Arguments[0] - 1]
             } else { $value = $Reference.methods[$Name] }
-            [void]$state.acquired.Add($value.refId)
+            if ($null -ne $value) { [void]$state.acquired.Add($value.refId) }
             return ,$value
         }.GetNewClosure()
         Release = {

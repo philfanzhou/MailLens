@@ -8,6 +8,53 @@ Windows PowerShell 5.1. The [Chinese skill](../skills/mail-lens/SKILL.md) and it
 agent instructions. The [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract)
 is authoritative; this guide explains using the existing behavior.
 
+## Read a few Inbox subjects first
+
+For a small first read, use the installed fixed launcher with this structured
+request in a unique external run directory:
+
+```json
+{"schemaVersion":1,"operation":"browse","limit":10}
+```
+
+Browse directly acquires the existing default Inbox without discovering other
+stores/folders or reading Body, sender, recipients or attachments. An exact
+`storeId`/`folderId` pair selects that folder directly. Both IDs must be nonempty
+strings together; never replace an unavailable identity with a same-subject mail.
+`limit` defaults to 10 (1–100), `maxItems` to 200 (1–10000 and at least `limit`),
+and `maxDurationSeconds` to 30 (1–300). No date, keyword or mailbox-list fields
+are accepted. Select only the needed identities for a separate `get` request;
+request a small explicit `bodyLength`, for example 2000 scalar values.
+
+`data.browse` reports effective limits, ordering, visited/returned/non-mail/
+unreadable counts, `scanComplete`, `moreAvailable`, `stopReason` and summaries.
+Successful collection sorting gives `receivedTimeDescending`; sort denial returns
+a partial `collectionOrder` sample with no claim of latest messages. Summaries
+contain exact source IDs, available display names/path, subject and optional
+`ReceivedTime` timestamp; preview fields are null. A date/display gap retains
+usable identity/subject while making the response partial. Warnings are aggregated
+with exact `warningCount`/`warningSummary` and capped detailed samples.
+
+Complete means the requested limited browse was fulfilled or the collection ended
+without gaps. It does not mean all mail was read: inspect `scanComplete` and
+`moreAvailable`. Limit/end, item/time budget, denied data and cancellation are
+reported separately. Budgets are cooperative between COM calls; a blocked call
+or security prompt can exceed them. Stderr contains only fixed phases, counts and
+elapsed seconds. Missing final output means failure/unknown; never reuse an old
+result or terminate Outlook to force completion.
+
+Use `{"schemaVersion":1,"operation":"diagnose"}` only for an environment
+failure. It checks runtime, COM/session and optional Outlook version, with
+`data.discoveryAttempted:false` and unevaluated coverage. It does not read default
+folders, directories, Items or message properties.
+
+This is the temporary [#29 fast-read stage](https://github.com/philfanzhou/MailLens/issues/29):
+browse and lightweight diagnose are available in schema 1. The legacy search,
+folders and get behavior below remains unchanged. Scope-aware bounded search and
+the full schema-2 migration belong to [#30](https://github.com/philfanzhou/MailLens/issues/30);
+the complete default model workflow belongs to [#31](https://github.com/philfanzhou/MailLens/issues/31).
+These examples do not claim those later stages are delivered.
+
 ## Ask in OpenCode
 
 These examples are synthetic; ordinary authorized searches proceed without
