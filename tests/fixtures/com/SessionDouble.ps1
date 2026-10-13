@@ -105,7 +105,11 @@ function New-SessionDouble {
 }
 
 function Assert-AllReleased($Double) {
-    $acquired = @($Double.state.acquired.ToArray() | Sort-Object)
-    $released = @($Double.state.released.ToArray() | Sort-Object)
+    $acquired = New-Object 'System.Collections.Generic.List[string]'
+    $acquired.AddRange($Double.state.acquired.ToArray())
+    $acquired.Sort([StringComparer]::Ordinal)
+    $released = New-Object 'System.Collections.Generic.List[string]'
+    $released.AddRange($Double.state.released.ToArray())
+    $released.Sort([StringComparer]::Ordinal)
     ($acquired -join '|') | Should -BeExactly ($released -join '|')
 }
