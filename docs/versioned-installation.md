@@ -2,8 +2,10 @@
 
 The [published `v0.1.0-rc.1`](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 points to historical schema 1 commit `3298df822d8ebbe03f63df56213f59c898fa356e`.
-Current schema 2 source is newer and untagged; [VERSION](../VERSION) still reads
-`0.1.0-rc.1`, so it alone cannot identify the current workflow. Select an
+Current schema-2 source targets `0.1.0-rc.2` in [VERSION](../VERSION) under
+[issue #35](https://github.com/philfanzhou/MailLens/issues/35); VERSION alone is
+not proof of publication. Verify the actual Release/tag/full SHA using the
+procedure below before installing a published candidate. Otherwise select an
 explicitly trusted complete **40-character commit SHA** for development. Do not
 assume the latest `main` is a reviewed release. End-user installation uses [the existing installer](installation.md);
 Git below is acquisition/metadata tooling only.
@@ -50,8 +52,8 @@ This procedure applies **only after a matching release exists**. Stable
 publication under [issue #11](https://github.com/philfanzhou/MailLens/issues/11)
 requires live evidence and explicit maintainer authorization; a prerelease RC
 channel may be published before live validation only under
-[issue #25](https://github.com/philfanzhou/MailLens/issues/25)'s recorded
-maintainer direction. No example here creates a tag or a Release.
+the owning channel task's recorded maintainer direction (rc.1: [#25](https://github.com/philfanzhou/MailLens/issues/25);
+rc.2: [#35](https://github.com/philfanzhou/MailLens/issues/35)). No example here creates a tag or a Release.
 
 Choose a tag from the actual [repository Releases](https://github.com/philfanzhou/MailLens/releases)
 and obtain its full commit SHA from its reviewed English notes. Read the release
