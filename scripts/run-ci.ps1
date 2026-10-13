@@ -21,7 +21,7 @@ try {
     $env:MAIL_LENS_PESTER_MANIFEST = $manifest
     if ($Job -eq 'windows-tests') {
         $path = Join-Path $repository 'tests/unit'
-        $required = 'Installer.Tests.ps1;Outlook.Detail.Tests.ps1;Outlook.Search.Tests.ps1;Outlook.Session.Tests.ps1;CI.Tests.ps1'
+        $required = 'Installer.Tests.ps1;Outlook.Browse.Tests.ps1;Outlook.Detail.Tests.ps1;Outlook.Search.Tests.ps1;Outlook.Session.Tests.ps1;CI.Tests.ps1'
     } else {
         $url = 'https://github.com/anomalyco/opencode/releases/download/v1.18.30/opencode-windows-x64-baseline.zip'
         $digest = '8c34c5767a688e8d6c4640b4893d34f08f08b071ed0043c940dc5be17a3b9233'

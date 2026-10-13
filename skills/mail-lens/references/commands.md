@@ -42,9 +42,25 @@ $result = ConvertFrom-Json -InputObject $resultText -ErrorAction Stop
 
 请求必须是 JSON 对象，`schemaVersion` 为整数 1。未知字段、错误类型及不适用字段会在连接 Outlook 前失败；字段名称及 operation 值使用下列准确拼写。
 
+### 小范围首次读取
+
+先用 browse 直接读取既有默认收件箱的少量主题，不为此次读取进行全目录预检或读取正文：
+
+```json
+{"schemaVersion":1,"operation":"browse","limit":10}
+```
+
+精确文件夹可以同时给出非空 `storeId` 与 `folderId`；不会发现无关邮箱或子文件夹。`limit` 默认 10、范围 1–100；`maxItems` 默认 200、范围 1–10000，且不能小于 limit；`maxDurationSeconds` 默认 30、范围 1–300。没有日期、关键词、发件人或全部邮箱字段。
+
+```json
+{"schemaVersion":1,"operation":"browse","storeId":"synthetic-store-a","folderId":"synthetic-folder-a","limit":10,"maxItems":200,"maxDurationSeconds":30}
+```
+
+读取所需身份后另用 get 读取选定正文，明确请求如 `bodyLength:2000`。此次 schema 1 新增 browse 与轻量 diagnose，search/folders/get 仍保留旧行为；范围感知有界搜索与统一 schema 2 属于 #30，完整默认代理流程属于 #31，不把这些后续能力说成已经交付。
+
 ### 环境与目录
 
-`diagnose` 无选择/负载字段；`folders` 允许 `mailboxes`、`folders`、`includeDescendants`。返回当前挂载目录，不增加/切换配置。
+`diagnose` 只在环境失败时使用，无选择/负载字段，仅检查运行环境、COM/会话和可用的 Outlook 版本；不获取默认文件夹、目录、Items 或邮件属性，`data.discoveryAttempted:false`，覆盖未评估。`folders` 允许 `mailboxes`、`folders`、`includeDescendants`。返回当前挂载目录，不增加/切换配置。
 
 ```json
 {"schemaVersion":1,"operation":"diagnose"}
@@ -102,7 +118,9 @@ $result = ConvertFrom-Json -InputObject $resultText -ErrorAction Stop
 
 - 信封身份与状态：`schemaVersion`、`operation`、`status`、`startedAt`、`endedAt`。验证本次操作及状态；complete/partial/failed/cancelled 分别对应退出 0/2/1/130。
 - 范围与问题：信封 `scope`、`warnings`、`errors`。展示准确已解析范围、位置/原因及英文错误，不得丢掉覆盖缺口。
-- 目录与环境：`data.runtime`、`data.sessionMode`、`data.stores`、`data.folders`、`data.coverage`。当前环境、existing/started 会话模式及目录发现统计；get 不进行全目录发现，不能用它的空目录统计推断邮箱为空。
+- 浏览：`data.browse` 的有效 `limit/maxItems/maxDurationSeconds`、`ordering`、`visitedCount/returnedCount/nonMailCount/unreadableCount`、`scanComplete/moreAvailable/stopReason` 及 `summaries`。排序成功为 `receivedTimeDescending`；拒绝时为 partial 的 `collectionOrder` 有界样本，不能声称最新。摘要保留准确身份/主题与可用显示来源；日期缺失保留记录并披露缺口，preview/previewSource 为 null。complete 只表示所要求的小范围浏览已完成或正常到达末尾，不能当全部邮箱扫描。预算/数据/排序缺口为 partial，取消为 cancelled。`warningCount/warningSummary` 保留准确事件总数，`warningSamplesTruncated` 披露详细样本截断。
+- 安全进度：stderr 仅输出固定英文阶段、数量和耗时，不能包含任何邮件内容/身份/路径或异常原文。时间预算在 COM 调用之间检查，无法强制结束阻塞调用或安全提示；不得终止 Outlook。
+- 目录与环境：`data.runtime`、`data.sessionMode`、`data.stores`、`data.folders`、`data.coverage`。当前环境、existing/started 会话模式及目录发现统计；`data.discoveryAttempted` 披露是否尝试目录发现；diagnose/browse/get 不进行全目录发现，覆盖未评估，不能用空目录统计推断邮箱为空。
 - 搜索时间：`data.search.range` 下的 `mode`、`timeZone`、`fromInclusive`/`toExclusive`、`localFromInclusive`/`localToExclusive`。明确展示半开区间与本地解释。
 - 搜索统计：`data.search` 下的 `keywords`、`keywordGroups`、`listOnly`、`sender`、`summaryLimit`、`matchedCount`、`returnedCount`、`resultsTruncated`、`summaries`、`folderCoverage`。摘要按有效时间降序及身份稳定排序，无分页游标。
 - 邮件摘要：`data.search.summaries[]` 下的 `storeId`/`storeName`、`folderId`/`folderPath`、`entryId`、`subject`、`timestamp`/`timestampField`、`preview`/`previewSource`、`sender`。previewSource 为 Body，是有界摘录。
