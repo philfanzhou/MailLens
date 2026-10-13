@@ -3,13 +3,17 @@
 A read-only OpenCode skill for searching and analyzing Classic Outlook email on
 native Windows through local COM automation.
 
-The [published `v0.1.0-rc.1` prerelease](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+The current schema-2 source targets `0.1.0-rc.2` in root [VERSION](VERSION),
+including the bounded workflow below. [Issue #35](https://github.com/philfanzhou/MailLens/issues/35)
+owns this candidate's authorized publication. Use the actual
+[repository Releases](https://github.com/philfanzhou/MailLens/releases) and
+[fixed-source acquisition guide](docs/versioned-installation.md) to verify a
+published tag and its exact source commit; VERSION alone is not publication evidence.
+The immutable [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 contains historical schema 1 source at `3298df822d8ebbe03f63df56213f59c898fa356e`.
-The current source implements schema 2 and the bounded workflow below; it is
-**untagged development source**, even though root [VERSION](VERSION) still reads
-`0.1.0-rc.1`. Choose a trusted exact source commit for this workflow; the version
-string alone does not distinguish these packages. No stable `v0.1.0` or newer
-candidate is published. Further publication requires the
+Update the complete package and use fresh schema-2 requests/results for this workflow.
+Live Windows/Classic Outlook validation remains pending [#9](https://github.com/philfanzhou/MailLens/issues/9);
+no stable `v0.1.0` is published. Further publication follows the
 [authorized release procedure](docs/releasing.md).
 
 ## Prerequisites and installation

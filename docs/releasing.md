@@ -1,16 +1,17 @@
 # Future manually authorized source releases
 
-MailLens currently has no published release. Root [VERSION](../VERSION) contains
-`0.1.0-rc.1`, an **unpublished prerelease candidate** prepared for the Windows
-testing channel under
-[issue #25](https://github.com/philfanzhou/MailLens/issues/25). This document,
-the [blank notes template](releases/TEMPLATE.md) and the
-[prepared RC notes input](releases/v0.1.0-rc.1.md) are publication inputs, not
-evidence that any version/tag/Release exists. [Issue #11](https://github.com/philfanzhou/MailLens/issues/11)
-owns stable publication; it follows [live validation #9](https://github.com/philfanzhou/MailLens/issues/9)
-and [documentation #10](https://github.com/philfanzhou/MailLens/issues/10).
-A prerelease RC channel may be published before #9 only under #25's recorded
-maintainer direction; the channel gates below keep the two channels separate.
+MailLens has an immutable [published rc.1 prerelease](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+at `3298df822d8ebbe03f63df56213f59c898fa356e` (historical schema 1).
+Root [VERSION](../VERSION) now targets `0.1.0-rc.2` for the schema-2 candidate
+under explicit maintainer direction in [issue #35](https://github.com/philfanzhou/MailLens/issues/35).
+This document, the [blank template](releases/TEMPLATE.md) and
+[prepared rc.2 notes input](releases/v0.1.0-rc.2.md) are publication inputs;
+only the actual verified tag and non-draft Release establish publication.
+[Issue #11](https://github.com/philfanzhou/MailLens/issues/11) owns stable
+publication and still follows [live validation #9](https://github.com/philfanzhou/MailLens/issues/9).
+The approved RC policy in [#25](https://github.com/philfanzhou/MailLens/issues/25)
+allows an explicitly authorized new RC before #9; each new version needs its
+own maintainer direction and exact-candidate publication record.
 
 Use the [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract),
 [project conventions](../CONTRIBUTING.md#version-and-protected-branches) and the
@@ -22,8 +23,8 @@ No commit or CI success automatically authorizes a tag or Release.
 ## Approve and validate one final commit
 
 Before publication, persist the following using sanitized English evidence in
-#11, or in the task that owns the channel (the RC under
-[issue #25](https://github.com/philfanzhou/MailLens/issues/25) while it is open):
+#11, or in the task that owns the channel (rc.2 under
+[issue #35](https://github.com/philfanzhou/MailLens/issues/35)):
 
 1. Explicit maintainer decision for the final version and exact full reviewed
    main commit SHA, plus **separate explicit authorization to publish**. Root
@@ -39,7 +40,7 @@ Before publication, persist the following using sanitized English evidence in
    [fixed installation](versioned-installation.md) / [lifecycle](installation.md)
    links. Use links pinned to the selected commit in public notes.
 4. The channel gate for that exact version:
-   - **Prerelease RC channel** (for example `v0.1.0-rc.1` under #25's recorded
+   - **Prerelease RC channel** (for example `v0.1.0-rc.2` under #35's recorded
      maintainer direction): completed #9 live validation is deliberately **not**
      a prerequisite. Pending #9 is an acknowledged RC limitation recorded in the
      notes, and the RC exists to supply the fixed candidate for #9. Synthetic
@@ -73,7 +74,7 @@ argument values. No sample value grants publication authorization.
 
 ```powershell
 $repo = 'philfanzhou/MailLens'
-$releaseCommit = '' # Required: approved full lowercase SHA from #11.
+$releaseCommit = '' # Required: approved full lowercase SHA from the owning channel task.
 $releaseVersion = '' # Required: maintainer-approved VERSION at that SHA.
 $releaseCheckout = 'C:\Synthetic Release Source\MailLens'
 $notesFile = 'C:\Synthetic Release Notes\notes.md' # Completed external English notes.
@@ -113,8 +114,8 @@ external notes are complete, and all approvals/gates above still hold.
 
 ## Authorized publication only
 
-Run this section only under #11's explicit publication authorization and passed
-preflight. Never use latest moving main as an implicit target:
+Run this section only under the owning channel task's explicit publication
+authorization and passed preflight. Never use latest moving main as an implicit target:
 
 ```powershell
 & git -C $releaseCheckout tag -a $tag $releaseCommit -m "MailLens $tag; commit $releaseCommit"
@@ -149,14 +150,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Release creation failed/unknown; read back bef
 if ($LASTEXITCODE -ne 0) { throw 'Release readback failed.' }
 ```
 
-A prerelease RC channel (for example `v0.1.0-rc.1` under #25) must add
+A prerelease RC channel (for example `v0.1.0-rc.2` under #35) must add
 `--prerelease` to creation and verify that channel on readback.
 `--verify-tag` requires the pre-existing remote
 tag instead of permitting implicit tag creation from latest main. Check tagName
 and title equal `$tag`, `isDraft:false`, the intended prerelease status, notes'
 full SHA/evidence/links and the actual returned URL. Re-read the remote annotated
 tag and peeled commit after release creation. Only this confirmed pair completes
-publication; persist the actual URL and result in #11. Do not treat local notes,
+publication; persist the actual URL and result in the owning channel task and
+update the #9/#11 handoffs. Do not treat local notes,
 a pushed tag alone or a draft as delivery.
 
 ## Failures, unknown outcomes and corrections

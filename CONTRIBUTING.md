@@ -63,12 +63,14 @@ language for project instructions.
 ## Version and protected branches
 
 [VERSION](VERSION) is the single source target version and currently contains
-`0.1.0-rc.1`. The immutable [published prerelease](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
-at `3298df822d8ebbe03f63df56213f59c898fa356e` uses schema 1; current schema 2
-source is newer, untagged development content with the same target version.
-The exact source commit and package hashes distinguish it from the historical
-release. The prior [issue #25](https://github.com/philfanzhou/MailLens/issues/25)
-authorization does not authorize another version or publication.
+`0.1.0-rc.2`, prepared for the schema-2 RC under explicit maintainer direction in
+[issue #35](https://github.com/philfanzhou/MailLens/issues/35). The immutable
+[published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+at `3298df822d8ebbe03f63df56213f59c898fa356e` uses schema 1.
+The actual Release, exact source commit and package hashes distinguish a
+published package from development content. The prior
+[issue #25](https://github.com/philfanzhou/MailLens/issues/25) authorization
+covers rc.1 only; each new release needs its own direction and publication record.
 Do not duplicate a current version in independent manifests or
 bump it automatically; every version change requires explicit maintainer direction.
 
