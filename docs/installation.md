@@ -1,8 +1,11 @@
 # Windows installation and lifecycle
 
 MailLens targets OpenCode on native Windows, Classic Outlook and Windows
-PowerShell 5.1. The source `VERSION` is the target package version; `0.1.0-rc.1`
-is an **unpublished prerelease candidate**, not an available release. This page
+PowerShell 5.1. The source `VERSION` is the target package version; it still reads
+`0.1.0-rc.1`. The [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+uses historical schema 1; the current schema 2 source is untagged development
+content. Select the exact trusted commit/package, rather than treating VERSION
+alone as source identity. This page
 covers the installer from [issue #6](https://github.com/philfanzhou/MailLens/issues/6).
 The [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract)
 defines the skill and query interfaces.
@@ -74,6 +77,11 @@ install/update preserves all package and receipt bytes/timestamps, including its
 original source metadata. A changed package/version requires explicit Update;
 Update cannot adopt an absent or unmanaged directory. An older source is allowed
 for deliberate rollback; it changes the installed copy without changing tags.
+For schema 1 -> 2, update the complete package even when VERSION is unchanged;
+changed file hashes still require Update. Restart OpenCode and create fresh
+schema 2 requests/results. A rollback to published rc.1 restores schema 1 and
+its older defaults; do not continue using schema 2 callers with that package.
+No mailbox/configuration/receipt migration is required; receipts stay schema 1.
 
 The entire package is copied byte-for-byte, including scripts, references and
 empty directories. Installed relative references and launcher/module paths remain

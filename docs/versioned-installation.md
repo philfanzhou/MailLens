@@ -1,9 +1,11 @@
 # Acquire a fixed source snapshot
 
-MailLens is unpublished: [VERSION](../VERSION) contains the prerelease target
-`0.1.0-rc.1`, not an available tag/Release. Select an explicitly trusted complete
-**40-character commit SHA** for development. Do not assume the latest `main` is a
-reviewed release. End-user installation uses [the existing installer](installation.md);
+The [published `v0.1.0-rc.1`](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
+points to historical schema 1 commit `3298df822d8ebbe03f63df56213f59c898fa356e`.
+Current schema 2 source is newer and untagged; [VERSION](../VERSION) still reads
+`0.1.0-rc.1`, so it alone cannot identify the current workflow. Select an
+explicitly trusted complete **40-character commit SHA** for development. Do not
+assume the latest `main` is a reviewed release. End-user installation uses [the existing installer](installation.md);
 Git below is acquisition/metadata tooling only.
 
 ## Fresh checkout at a chosen commit
@@ -42,7 +44,7 @@ independently, in your own absolute tools path, for example
 `C:\Synthetic Tools\mail-lens-install.ps1`; do not overwrite an existing tool.
 After source removal, point `$installer` at that retained file for Status/Uninstall.
 
-## Future released versions
+## Published and future released versions
 
 This procedure applies **only after a matching release exists**. Stable
 publication under [issue #11](https://github.com/philfanzhou/MailLens/issues/11)
@@ -88,7 +90,7 @@ tag, use a different commit silently, or fall back to `main`.
 
 ## Archives, installed copies and rollback
 
-A future GitHub source archive is another source-only distribution of the
+A GitHub source archive is another source-only distribution of the
 verified tag/commit. Retain the complete extracted source tree and verify its
 origin against the same release record. An extracted archive lacks `.git`;
 the installation receipt honestly records unknown Git provenance when metadata
