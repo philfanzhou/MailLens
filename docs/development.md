@@ -34,6 +34,12 @@ project Markdown and PowerShell comment/help tokens while allowing Unicode
 synthetic data and Chinese skill instructions. These mechanical checks do not
 prove every language or read-only semantic requirement.
 
+Query tests use schema 2; installer ownership receipts retain their separate
+schema 1. Search tests cover global budgets, direct/default scope, exact date
+filter membership under en-US/zh-CN, literal/body gating, auxiliary degradation,
+warning aggregation and bounded summary retention. These are synthetic control
+flow checks, not Outlook provider timing or live mailbox validation.
+
 All unit containers are mandatory, including the existing COM doubles and
 installer tests. The explicit Pester result gate rejects missing/empty containers,
 failures, skipped, inconclusive and not-run tests. Temporary negative tests prove

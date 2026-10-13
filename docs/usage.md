@@ -14,7 +14,7 @@ For a small first read, use the installed fixed launcher with this structured
 request in a unique external run directory:
 
 ```json
-{"schemaVersion":1,"operation":"browse","limit":10}
+{"schemaVersion":2,"operation":"browse","limit":10}
 ```
 
 Browse directly acquires the existing default Inbox without discovering other
@@ -43,17 +43,17 @@ or security prompt can exceed them. Stderr contains only fixed phases, counts an
 elapsed seconds. Missing final output means failure/unknown; never reuse an old
 result or terminate Outlook to force completion.
 
-Use `{"schemaVersion":1,"operation":"diagnose"}` only for an environment
+Use `{"schemaVersion":2,"operation":"diagnose"}` only for an environment
 failure. It checks runtime, COM/session and optional Outlook version, with
 `data.discoveryAttempted:false` and unevaluated coverage. It does not read default
 folders, directories, Items or message properties.
 
-This is the temporary [#29 fast-read stage](https://github.com/philfanzhou/MailLens/issues/29):
-browse and lightweight diagnose are available in schema 1. The legacy search,
-folders and get behavior below remains unchanged. Scope-aware bounded search and
-the full schema-2 migration belong to [#30](https://github.com/philfanzhou/MailLens/issues/30);
-the complete default model workflow belongs to [#31](https://github.com/philfanzhou/MailLens/issues/31).
-These examples do not claim those later stages are delivered.
+All query operations use schema 2. Schema 1 and unknown versions fail before
+COM with `unsupported_schema`. Update or roll back the complete owned package,
+restart OpenCode and create new requests/results; never mix scripts/instructions
+or reuse old results. Installer receipt schema 1 is a separate format and is
+unchanged. The complete model consumption workflow is tracked in
+[#31](https://github.com/philfanzhou/MailLens/issues/31).
 
 ## Ask in OpenCode
 
@@ -63,17 +63,33 @@ selection or unclear date boundary, not as a routine extra approval step.
 
 | Synthetic request | Scope and interpretation |
 | --- | --- |
-| “Use MailLens to summarize Starbridge contract correspondence from the last 30 days, with sources.” | All mounted readable stores/folders and descendants; show required project term and expanded contract alternatives. |
+| “Use MailLens to summarize Starbridge contract correspondence from the last 30 days, with sources.” | Default Inbox only, without descendants; show required project term and expanded contract alternatives. |
 | “Search only the Synthetic Archive mailbox, Contracts folder, excluding subfolders, from October 1 through 3, 2026.” | Resolve exact store/folder; exclude descendants; show the Windows local calendar interpretation and offsets. |
 | “List mail from all history in the selected Synthetic Archive folder.” | Explicit all history and list-only mode; no invented keyword or sender restriction. |
 | “Build a timeline and draft a list of unresolved requests, citing the emails.” | Read selected bodies and cite evidence; a list of requested actions does not authorize executing them. |
 
-Default discovery includes all currently mounted readable stores and all exposed
-folders/descendants, including custom folders, Deleted Items, Junk, and readable
-PST/archive/shared stores. It does not mount stores or promise hidden/recoverable
-items beyond exposed COM roots. Search visits folders sequentially and matches
-case-insensitive literal terms across subject and plain `Body`. Quotes,
-apostrophes, wildcard-looking text and regex-looking text remain ordinary data.
+Search defaults to the existing default Inbox without descendants. `mailboxes`
+or `folders` explicitly select broader scope; `allMailboxes:true` requests all
+mounted readable stores and cannot combine with those narrower selectors.
+Explicit search scope includes descendants by default; an explicit boolean
+`includeDescendants` controls this. Readable custom, Deleted, Junk, PST/archive/
+shared and mail under non-mail parents remain included in an explicitly requested
+tree. MailLens does not mount stores or promise hidden/recoverable data.
+
+`folders` defaults to the default store root and immediate children only;
+`includeDescendants:true` requests recursive discovery. It accepts the same
+selectors and finite folder/time budgets. Exact identity resolution does not
+require global discovery; names use store metadata and paths stay within selected
+stores (default store when no mailbox is given). Returned catalog rows describe
+attempted/relevant locations, including discovery needed to resolve a path.
+
+Search visits candidates sequentially and matches case-insensitive literal terms
+across subject/plain `Body`. Dates and sender are checked first. List-only and
+subject-satisfied keyword groups do not read Body. Only unsatisfied groups need
+Body; optional previews come only from Body already read for matching. Quotes,
+apostrophes, wildcard-looking and regex-looking text remain data. A safe coarse
+UTC date union is followed by exact timestamp checks. Unsupported Restrict uses
+a disclosed original-collection scan under the same budgets.
 
 Show every actual expanded term. For Starbridge contracts, the grouping can be
 `[["Starbridge"], ["contract", "agreement", "signature"]]`: OR within a group,
@@ -85,7 +101,8 @@ uses `listOnly`; empty keywords are invalid, not an unrestricted listing.
 Selectors use exact store display names/IDs and exact folder paths/identities
 returned by discovery. Duplicate names require an exact identity. Unknown or
 unreadable selections produce an explicit error/gap; they do not silently become
-all stores. `includeDescendants` defaults to true, but follows the user's choice.
+Inbox or all stores. Folder identity alone selects its store. `includeDescendants`
+follows the defaults above and the user's explicit choice.
 
 ## Time, coverage and summary limits
 
@@ -100,24 +117,42 @@ timezone or guess silently.
 
 Report the returned effective time and `timestampField`: `CreationTime` for an
 unsent draft, `SentOn` in a recognized Sent Items folder/subtree, otherwise valid
-`ReceivedTime`, with `SentOn`/`CreationTime` fallbacks. Detail source
+`ReceivedTime`, with `SentOn`/`CreationTime` fallbacks. Unavailable Sent
+classification uses that qualified fallback and reports
+`timestampClassificationComplete:false`; unavailable modification markers retain
+readable matches with `consistencyAvailable:false`. Both are partial results. Detail source
 `LastModificationTime` is a consistency marker, not a received-event timestamp;
 use returned sent/received/creation dates or the search timestamp for a timeline.
 
 Answers show actual resolved stores/folders, UTC/local range/timezone, terms and
 AND/OR groups, sender filtering, matched/returned counts and warnings. Default
-`summaryLimit` is 100. A full traversal can return capped summaries; it still
-inspects all in-range candidate bodies, and does not stop scanning at 100.
+`summaryLimit` is 20 (1–100). `exhaustive` defaults false and stops at the
+summary limit. Search `maxItems` defaults 1000 (1–100000); search/folders
+`maxFolders` defaults 25 (1–1000), and `maxDurationSeconds` 30 (1–300).
+Budgets apply globally across resolution, discovery and scanning; non-mail and
+denied attempts count. `exhaustive:true` removes only early summary stopping.
+It still obeys finite budgets and keeps at most `summaryLimit` summaries in memory.
+Never automatically widen scope, enable exhaustive mode or increase budgets.
+
+`matchedCount` counts examined matches. It is an exact requested-scope total only
+when `matchedCountIsExact:true`; `scanComplete` and `stopReason` distinguish end,
+summary/item/folder/time limits and cancellation. Retained summaries sort by
+effective time and stable identity, but the retained sample is not necessarily the
+globally newest matches. `resultsTruncated` also covers unknown remaining scope.
+Every relevant coverage or consistency gap makes search partial.
 
 | Result | Permitted interpretation |
 | --- | --- |
 | Complete, no coverage gaps, zero matches | No match in the displayed scope/time/terms; not proof the event never occurred. |
-| Complete with `resultsTruncated:true` | Traversal completed but some summaries were omitted. Increase the limit or narrow authorized scope before an exhaustive account. |
+| Complete with `resultsTruncated:true` | Traversal completed but some summaries were omitted. Use a deliberate narrower query or authorized explicit limits before a fuller account. |
 | Partial | Analyze reliably read data with exact gaps; never turn an unreadable folder/body into “no mail.” |
 | Failed/cancelled/missing or damaged output | Report failure/unknown/incomplete coverage; never reuse old results or infer an empty mailbox. |
 
 Inspect both discovery coverage and per-folder search visited/matched/unreadable
-counts, plus warnings/errors. The exit codes are 0 complete, 2 partial, 1 failed,
+counts, plus warnings/errors. All query operations preserve warning event totals in
+`warningCount`/`warningSummary`, with at most 20 detailed samples across a response
+and at most two per code/stage/property group. Sample omission does not create a
+new coverage gap; raw COM exception text is excluded. The exit codes are 0 complete, 2 partial, 1 failed,
 130 cooperative cancellation; validate the corresponding JSON envelope too.
 There is no pagination cursor. A forcibly terminated host blocked inside COM may
 leave no final result. Search is not a coherent mailbox snapshot.

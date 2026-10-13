@@ -4,7 +4,7 @@
     . (Join-Path $PSScriptRoot '../fixtures/com/BrowseDouble.ps1')
     $native = @{ isWindows = $true; powerShellVersion = '5.1.26100.33438'; edition = 'Desktop'; apartmentState = 'STA'; timeZone = 'UTC' }
     function BrowseRequest($Extra = '') {
-        $request = ConvertFrom-Json ('{"schemaVersion":1,"operation":"browse"' + $Extra + '}')
+        $request = ConvertFrom-Json ('{"schemaVersion":2,"operation":"browse"' + $Extra + '}')
         # PowerShell 7's JSON integers are Int64; emulate the native 5.1 parser for the private seam.
         foreach ($p in @($request.PSObject.Properties)) { if ($p.Value -is [long] -and $p.Value -le [int]::MaxValue -and $p.Value -ge [int]::MinValue) { $p.Value = [int]$p.Value } }
         return $request
@@ -139,7 +139,7 @@ Describe 'Direct limited Inbox browsing' {
         $result.data.browse.visitedCount | Should -Be 200
         $result.data.browse.unreadableCount | Should -Be 200
         $result.warningCount | Should -Be 201
-        $result.warningSummary[0].count | Should -Be 200
+        @($result.warningSummary | Where-Object {$_.code -eq 'browse_item_unavailable'})[0].count | Should -Be 200
         $result.warnings.Count | Should -Be 3
         $result.warningSamplesTruncated | Should -BeTrue
         Assert-AllReleased $double
@@ -286,7 +286,7 @@ Describe 'New fields and lightweight diagnose' {
     }
     It 'diagnoses a connection without default folders, catalog, Items or mail reads' {
         $double = New-BrowseDouble -Failures @{ 'session.Stores' = $true; 'session.DefaultStore' = $true; 'inbox.Items' = $true }
-        $request = [pscustomobject]@{ schemaVersion = [int]1; operation = 'diagnose' }
+        $request = [pscustomobject]@{ schemaVersion = [int]2; operation = 'diagnose' }
         $result = Invoke-MailLensRequest $request $double.adapter $native -Progress {}
         $result.status | Should -Be complete
         $result.data.outlookVersion | Should -BeExactly '16.0'
@@ -298,7 +298,7 @@ Describe 'New fields and lightweight diagnose' {
     }
     It 'retains diagnosis after optional version denial and never logs raw errors' {
         $double = New-BrowseDouble -Failures @{ 'application.Version' = $true }
-        $result = Invoke-MailLensRequest ([pscustomobject]@{schemaVersion=[int]1;operation='diagnose'}) $double.adapter $native -Progress {}
+        $result = Invoke-MailLensRequest ([pscustomobject]@{schemaVersion=[int]2;operation='diagnose'}) $double.adapter $native -Progress {}
         $result.status | Should -Be partial
         $result.data.discoveryAttempted | Should -BeFalse
         $result.warnings[0].code | Should -Be version_unavailable
@@ -342,7 +342,7 @@ Describe 'Native browse atomic publication' -Tag Native {
     It 'publishes Unicode browse JSON from an input <Bom> BOM' -ForEach @(@{ Bom = $false }, @{ Bom = $true }) {
         $dir = Join-Path $TestDrive ([Guid]::NewGuid().ToString('N')); [void][IO.Directory]::CreateDirectory($dir)
         $request = Join-Path $dir 'browse.request.json'; $output = Join-Path $dir 'browse.result.json'
-        [IO.File]::WriteAllText($request, '{"schemaVersion":1,"operation":"browse","limit":1}', (New-Object Text.UTF8Encoding($Bom, $true)))
+        [IO.File]::WriteAllText($request, '{"schemaVersion":2,"operation":"browse","limit":1}', (New-Object Text.UTF8Encoding($Bom, $true)))
         $double = New-BrowseDouble
         (Invoke-MailLensFileRequest $request $output $double.adapter $native) | Should -Be 0
         $bytes = [IO.File]::ReadAllBytes($output); $bytes[0] | Should -Be 123
@@ -357,7 +357,7 @@ Describe 'Native browse atomic publication' -Tag Native {
     It 'publishes cancellation with attempted summaries and exit 130' {
         $dir = Join-Path $TestDrive ([Guid]::NewGuid().ToString('N')); [void][IO.Directory]::CreateDirectory($dir)
         $request = Join-Path $dir 'browse.request.json'; $output = Join-Path $dir 'browse.result.json'
-        [IO.File]::WriteAllText($request, '{"schemaVersion":1,"operation":"browse"}', (New-Object Text.UTF8Encoding($false)))
+        [IO.File]::WriteAllText($request, '{"schemaVersion":2,"operation":"browse"}', (New-Object Text.UTF8Encoding($false)))
         $double = New-BrowseDouble; $state = $double.state
         $cancel = { $state.calls.Contains('browse-999.Release') }.GetNewClosure()
         (Invoke-MailLensFileRequest $request $output $double.adapter $native $cancel) | Should -Be 130

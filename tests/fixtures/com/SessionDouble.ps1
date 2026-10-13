@@ -43,9 +43,19 @@ function New-SessionDouble {
     $values = @($first, $second)
     if ($Empty) { $values = @() }
     $stores = Node 'stores' 'collection' @{ Count = $values.Count } @{ Item = $values }
-    $session = Node 'session' 'session' @{ Stores = $stores } @{}
+    $session = Node 'session' 'session' @{ Stores = $stores; DefaultStore = $(if ($Empty) { $null } else { $first }); Class = 1 } @{}
+    $first.methods.GetDefaultFolder = $root; $second.methods.GetDefaultFolder = $null
+    $folderMap = @{}
+    function Populate($folder, $store, $parent) {
+        if ($folderMap.ContainsKey($folder.refId)) { return }
+        $folderMap[$folder.refId] = $folder
+        $folder.properties.StoreID = $store.properties.StoreID; $folder.properties.Store = $store; $folder.properties.Parent = $parent
+        foreach ($child in $folder.properties.Folders.methods.Item) { Populate $child $store $folder }
+    }
+    Populate $root $first $session; Populate $archiveRoot $second $session
     $app = Node 'application' 'application' @{ Version = '16.0' } @{ GetNamespace = $session }
     $state.application = $app
+    $state.folderMap = $folderMap
     $state.root = $root
     $state.archiveRoot = $archiveRoot
     $adapter = @{
@@ -72,6 +82,11 @@ function New-SessionDouble {
             if ($Name -eq 'Item') { $key += '.' + $Arguments[0] }
             [void]$state.calls.Add($key)
             if ($state.failures.ContainsKey($key)) { throw 'Synthetic method denied.' }
+            if ($Name -eq 'GetFolderFromID') {
+                $value = $state.folderMap[$Arguments[0]]
+                if ($null -eq $value -or $value.properties.StoreID -cne $Arguments[1]) { throw 'Unknown exact folder.' }
+                [void]$state.acquired.Add($value.refId); return ,$value
+            }
             if (-not $Reference.methods.ContainsKey($Name)) { throw 'Forbidden/unexpected method.' }
             if ($Name -eq 'Item') {
                 if ($Arguments[0] -lt 1) { throw 'COM collections are 1-based.' }
@@ -90,7 +105,11 @@ function New-SessionDouble {
 }
 
 function Assert-AllReleased($Double) {
-    $acquired = @($Double.state.acquired.ToArray() | Sort-Object)
-    $released = @($Double.state.released.ToArray() | Sort-Object)
+    $acquired = New-Object 'System.Collections.Generic.List[string]'
+    $acquired.AddRange($Double.state.acquired.ToArray())
+    $acquired.Sort([StringComparer]::Ordinal)
+    $released = New-Object 'System.Collections.Generic.List[string]'
+    $released.AddRange($Double.state.released.ToArray())
+    $released.Sort([StringComparer]::Ordinal)
     ($acquired -join '|') | Should -BeExactly ($released -join '|')
 }
