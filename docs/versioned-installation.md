@@ -1,7 +1,7 @@
 # Acquire a fixed source snapshot
 
-MailLens is unpublished: [VERSION](../VERSION) contains the development target
-`0.1.0`, not an available tag/Release. Select an explicitly trusted complete
+MailLens is unpublished: [VERSION](../VERSION) contains the prerelease target
+`0.1.0-rc.1`, not an available tag/Release. Select an explicitly trusted complete
 **40-character commit SHA** for development. Do not assume the latest `main` is a
 reviewed release. End-user installation uses [the existing installer](installation.md);
 Git below is acquisition/metadata tooling only.
@@ -44,10 +44,12 @@ After source removal, point `$installer` at that retained file for Status/Uninst
 
 ## Future released versions
 
-This procedure applies **only after a matching release exists**. Publication
-under [issue #11](https://github.com/philfanzhou/MailLens/issues/11) also requires
-live evidence and explicit maintainer authorization. No example here creates a
-tag or a Release.
+This procedure applies **only after a matching release exists**. Stable
+publication under [issue #11](https://github.com/philfanzhou/MailLens/issues/11)
+requires live evidence and explicit maintainer authorization; a prerelease RC
+channel may be published before live validation only under
+[issue #25](https://github.com/philfanzhou/MailLens/issues/25)'s recorded
+maintainer direction. No example here creates a tag or a Release.
 
 Choose a tag from the actual [repository Releases](https://github.com/philfanzhou/MailLens/releases)
 and obtain its full commit SHA from its reviewed English notes. Read the release

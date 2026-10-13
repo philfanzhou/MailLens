@@ -63,9 +63,12 @@ language for project instructions.
 ## Version and protected branches
 
 [VERSION](VERSION) is the single source target version and currently contains
-only `0.1.0`, an **unpublished development baseline**. No release or installable
-tag is implied. Do not duplicate a current version in independent manifests or
-bump it automatically; future version changes require explicit maintainer direction.
+`0.1.0-rc.1`, an **unpublished prerelease candidate** prepared for the Windows
+testing channel under
+[issue #25](https://github.com/philfanzhou/MailLens/issues/25)'s recorded
+maintainer direction. No published tag or Release is implied or exists yet.
+Do not duplicate a current version in independent manifests or
+bump it automatically; every version change requires explicit maintainer direction.
 
 All content changes go through a feature-branch pull request. The existing active
 [default-branch/main ruleset](https://github.com/philfanzhou/MailLens/rules/24913360)
