@@ -30,7 +30,17 @@ try {
         Write-Output "OpenCode provenance: $url; npm integrity=sha512-$integrity; source=026b106bc5d41b679ffc413264229c340871e4d3."
         Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archive -TimeoutSec 180
         $env:MAIL_LENS_OPENCODE = Expand-CIOpenCodeArchive $archive (Join-Path $RunRoot 'opencode') $integrity
-        $version = Invoke-CIProcess $env:MAIL_LENS_OPENCODE @('--version') $repository
+        # Even version preflight gets its own child-only configuration and project roots.
+        $versionRoot = Join-Path $RunRoot 'version-preflight'
+        [void][IO.Directory]::CreateDirectory($versionRoot)
+        $isolated = @{ OPENCODE_CONFIG_DIR=$null; OPENCODE_CONFIG_CONTENT='{}'; OPENCODE_DISABLE_AUTOUPDATE='1'; OPENCODE_DISABLE_MODELS_FETCH='1' }
+        foreach ($key in @('XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_CACHE_HOME','XDG_STATE_HOME','OPENCODE_TEST_HOME')) {
+            $isolated[$key] = Join-Path $versionRoot $key
+            [void][IO.Directory]::CreateDirectory($isolated[$key])
+        }
+        $isolated['OPENCODE_CONFIG'] = Join-Path $versionRoot 'empty.json'
+        [IO.File]::WriteAllText($isolated['OPENCODE_CONFIG'], '{}', (New-Object Text.UTF8Encoding($false, $true)))
+        $version = Invoke-CIProcess $env:MAIL_LENS_OPENCODE @('--version') $versionRoot -Environment $isolated
         if ($version.Code -ne 0 -or $version.Out.Trim() -cne 'opencode v2.0.28') { throw 'Unexpected OpenCode version.' }
         Write-Output "Integrity-verified native OpenCode version: $($version.Out.Trim())."
         $path = Join-Path $repository 'tests/integration'

@@ -1,12 +1,15 @@
 ﻿# Development-only subprocess helpers. Paths remain data, never command text.
 function Invoke-CIProcess {
-    param([string]$Executable, [string[]]$Arguments, [string]$Directory, [int]$TimeoutSeconds = 90)
+    param([string]$Executable, [string[]]$Arguments, [string]$Directory, [int]$TimeoutSeconds = 90, [hashtable]$Environment = @{})
     if (-not [IO.File]::Exists($Executable)) { throw "Required executable missing: $Executable" }
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $Executable
     $quoted = foreach ($argument in $Arguments) {
         if ($argument.Contains('"') -or $argument.Contains("`n") -or $argument.Contains("`r")) { throw 'Unsupported subprocess argument.' }
         '"' + [regex]::Replace($argument, '(\\+)$', '$1$1') + '"'
+    }
+    foreach ($key in $Environment.Keys) {
+        if ($null -eq $Environment[$key]) { $info.EnvironmentVariables.Remove($key) } else { $info.EnvironmentVariables[$key] = $Environment[$key] }
     }
     $info.Arguments = $quoted -join ' '
     $info.WorkingDirectory = $Directory

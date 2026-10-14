@@ -66,6 +66,14 @@ Describe 'CI failure propagation' {
         Write-CIText (Join-Path $testPath 'Negative.Tests.ps1') $test
         (Invoke-NegativeTests $testPath).Code | Should -Be 1
     }
+    It 'isolates child environment overrides without changing the caller' {
+        $file=Join-Path $script:CaseRoot 'environment.ps1'
+        Write-CIText $file '[Console]::Write($env:MAIL_LENS_SYNTHETIC_CHILD_ENV)'
+        $before=[Environment]::GetEnvironmentVariable('MAIL_LENS_SYNTHETIC_CHILD_ENV','Process')
+        $result=Invoke-CIProcess $script:PowerShell @('-NoProfile','-File',$file) $script:CaseRoot -Environment @{MAIL_LENS_SYNTHETIC_CHILD_ENV='isolated'}
+        $result.Code | Should -Be 0; $result.Out | Should -BeExactly 'isolated'
+        [Environment]::GetEnvironmentVariable('MAIL_LENS_SYNTHETIC_CHILD_ENV','Process') | Should -BeExactly $before
+    }
     It 'rejects absent CLI executable and times out only its owned child' {
         { Invoke-CIProcess (Join-Path $script:CaseRoot 'absent.exe') @() $script:CaseRoot } | Should -Throw '*missing*'
         $scriptPath = Join-Path $script:CaseRoot 'sleep.ps1'; Write-CIText $scriptPath "Start-Sleep -Seconds 30`n"
