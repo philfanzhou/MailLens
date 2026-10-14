@@ -51,13 +51,17 @@ The installer prints the selected scope and exact target.
 
 The selected environment override must be absolute and valid. `OPENCODE_CONFIG`
 selects a configuration **file**, not this skill destination. APPDATA is not a
-fallback. See the [official skill paths](https://opencode.ai/docs/skills/),
-[custom configuration directory](https://opencode.ai/docs/config/#custom-directory)
-and [pinned OpenCode 1.18.30 resolver](https://github.com/anomalyco/opencode/blob/5cd8e68fdd72b27818d26d168b9c7a06b359567e/packages/core/src/global.ts).
+fallback. See the [official skill paths](https://opencode.ai/v2/docs/skills/),
+[V2 configuration](https://opencode.ai/v2/docs/config/)
+and [pinned OpenCode 2.0.28 resolver](https://github.com/anomalyco/opencode/blob/026b106bc5d41b679ffc413264229c340871e4d3/packages/util/src/global.ts).
 Only the selected destination is managed; other scopes and renamed copies remain
 caller-owned. Restart OpenCode after a lifecycle change and inspect its skill
-loading. Native pinned CLI discovery is verified separately by
-[issue #8](https://github.com/philfanzhou/MailLens/issues/8); the installer does not
+loading. Use the [PowerShell 5.1 V2 verification commands](../README.md#windows-quickstart)
+to compare the exact installed path, complete instructions and resources. They
+start an owned authenticated loopback service and wait for plugin activation
+before reading the V2 API; target absence alone is not readiness. Update the
+complete MailLens package as well as the CLI. Native V2 discovery evidence is
+owned by [issue #37](https://github.com/philfanzhou/MailLens/issues/37); the installer does not
 promise an atomic snapshot for an already running OpenCode process.
 
 ## Status, update, deliberate rollback and removal
