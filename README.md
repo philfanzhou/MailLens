@@ -3,12 +3,15 @@
 A read-only OpenCode skill for searching and analyzing Classic Outlook email on
 native Windows through local COM automation.
 
-The current schema-2 source targets `0.1.0-rc.2` in root [VERSION](VERSION),
-including the bounded workflow below. [Issue #35](https://github.com/philfanzhou/MailLens/issues/35)
+The current schema-2 source targets `0.1.0-rc.3` in root [VERSION](VERSION),
+including the bounded workflow and OpenCode 2.0.28 verification below.
+[Issue #40](https://github.com/philfanzhou/MailLens/issues/40)
 owns this candidate's authorized publication. Use the actual
 [repository Releases](https://github.com/philfanzhou/MailLens/releases) and
 [fixed-source acquisition guide](docs/versioned-installation.md) to verify a
 published tag and its exact source commit; VERSION alone is not publication evidence.
+The immutable [published rc.2](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
+uses schema 2 at `e357f79b159407d723533e53ee5014d1cd7e1a52`.
 The immutable [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 contains historical schema 1 source at `3298df822d8ebbe03f63df56213f59c898fa356e`.
 Update the complete package and use fresh schema-2 requests/results for this workflow.

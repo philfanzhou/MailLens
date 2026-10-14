@@ -2,10 +2,12 @@
 
 MailLens has an immutable [published rc.1 prerelease](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 at `3298df822d8ebbe03f63df56213f59c898fa356e` (historical schema 1).
-Root [VERSION](../VERSION) now targets `0.1.0-rc.2` for the schema-2 candidate
-under explicit maintainer direction in [issue #35](https://github.com/philfanzhou/MailLens/issues/35).
+The immutable [published rc.2](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
+at `e357f79b159407d723533e53ee5014d1cd7e1a52` uses schema 2.
+Root [VERSION](../VERSION) now targets `0.1.0-rc.3` for the OpenCode 2.0.28 candidate
+under explicit maintainer direction in [issue #40](https://github.com/philfanzhou/MailLens/issues/40).
 This document, the [blank template](releases/TEMPLATE.md) and
-[prepared rc.2 notes input](releases/v0.1.0-rc.2.md) are publication inputs;
+[prepared rc.3 notes input](releases/v0.1.0-rc.3.md) are publication inputs;
 only the actual verified tag and non-draft Release establish publication.
 [Issue #11](https://github.com/philfanzhou/MailLens/issues/11) owns stable
 publication and still follows [live validation #9](https://github.com/philfanzhou/MailLens/issues/9).
@@ -23,8 +25,8 @@ No commit or CI success automatically authorizes a tag or Release.
 ## Approve and validate one final commit
 
 Before publication, persist the following using sanitized English evidence in
-#11, or in the task that owns the channel (rc.2 under
-[issue #35](https://github.com/philfanzhou/MailLens/issues/35)):
+#11, or in the task that owns the channel (rc.3 under
+[issue #40](https://github.com/philfanzhou/MailLens/issues/40)):
 
 1. Explicit maintainer decision for the final version and exact full reviewed
    main commit SHA, plus **separate explicit authorization to publish**. Root
@@ -40,7 +42,7 @@ Before publication, persist the following using sanitized English evidence in
    [fixed installation](versioned-installation.md) / [lifecycle](installation.md)
    links. Use links pinned to the selected commit in public notes.
 4. The channel gate for that exact version:
-   - **Prerelease RC channel** (for example `v0.1.0-rc.2` under #35's recorded
+   - **Prerelease RC channel** (for example `v0.1.0-rc.3` under #40's recorded
      maintainer direction): completed #9 live validation is deliberately **not**
      a prerequisite. Pending #9 is an acknowledged RC limitation recorded in the
      notes, and the RC exists to supply the fixed candidate for #9. Synthetic
@@ -63,7 +65,7 @@ merge SHA and exact-main CI separately. A source commit cannot contain its own
 final SHA: prepare notes externally after selecting the final commit, rather
 than making another commit to insert its SHA. If published source needs a fix,
 prepare a reviewed fix and a newly authorized version (for example
-`v0.1.0-rc.2`); never move, overwrite or recreate a published tag.
+`v0.1.0-rc.4`); never move, overwrite or recreate a published tag.
 
 ## Read-only preflight
 
@@ -150,7 +152,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release creation failed/unknown; read back bef
 if ($LASTEXITCODE -ne 0) { throw 'Release readback failed.' }
 ```
 
-A prerelease RC channel (for example `v0.1.0-rc.2` under #35) must add
+A prerelease RC channel (for example `v0.1.0-rc.3` under #40) must add
 `--prerelease` to creation and verify that channel on readback.
 `--verify-tag` requires the pre-existing remote
 tag instead of permitting implicit tag creation from latest main. Check tagName

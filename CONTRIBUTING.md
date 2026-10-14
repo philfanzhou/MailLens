@@ -63,10 +63,14 @@ language for project instructions.
 ## Version and protected branches
 
 [VERSION](VERSION) is the single source target version and currently contains
-`0.1.0-rc.2`, prepared for the schema-2 RC under explicit maintainer direction in
-[issue #35](https://github.com/philfanzhou/MailLens/issues/35). The immutable
+`0.1.0-rc.3`, prepared for the OpenCode 2.0.28 RC under explicit maintainer
+direction in
+[issue #40](https://github.com/philfanzhou/MailLens/issues/40). The immutable
 [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 at `3298df822d8ebbe03f63df56213f59c898fa356e` uses schema 1.
+The immutable [published rc.2](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
+at `e357f79b159407d723533e53ee5014d1cd7e1a52` uses schema 2; its
+[#35 authorization](https://github.com/philfanzhou/MailLens/issues/35) covers rc.2 only.
 The actual Release, exact source commit and package hashes distinguish a
 published package from development content. The prior
 [issue #25](https://github.com/philfanzhou/MailLens/issues/25) authorization

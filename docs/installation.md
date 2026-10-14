@@ -1,10 +1,12 @@
 # Windows installation and lifecycle
 
 MailLens targets OpenCode on native Windows, Classic Outlook and Windows
-PowerShell 5.1. The source [VERSION](../VERSION) targets `0.1.0-rc.2` under
-[issue #35](https://github.com/philfanzhou/MailLens/issues/35). The immutable
+PowerShell 5.1. The source [VERSION](../VERSION) targets `0.1.0-rc.3` under
+[issue #40](https://github.com/philfanzhou/MailLens/issues/40). The immutable
 [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 uses historical schema 1; the current source implements schema 2.
+Published [rc.2](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
+also uses schema 2; rc.3 preserves query and receipt compatibility.
 Verify any release's exact tag/commit through
 [fixed-source acquisition](versioned-installation.md), rather than treating VERSION
 alone as publication or source identity. This page
@@ -83,9 +85,11 @@ install/update preserves all package and receipt bytes/timestamps, including its
 original source metadata. A changed package/version requires explicit Update;
 Update cannot adopt an absent or unmanaged directory. An older source is allowed
 for deliberate rollback; it changes the installed copy without changing tags.
-When moving to rc.2 from rc.1 or an earlier untagged schema-2 package, update
-the complete package; changed versions or file hashes require Update. Restart OpenCode and create fresh
-schema 2 requests/results. A rollback to published rc.1 restores schema 1 and
+When moving to rc.3 from rc.2, update the complete owned package and restart
+OpenCode; query schema 2 and receipt schema 1 are unchanged. Verify the exact
+discovered copy using the OpenCode 2.0.28 steps in the README. Moving from rc.1
+also changes query schema 1 to schema 2 and requires fresh schema 2 requests/results.
+A rollback to published rc.1 restores schema 1 and
 its older defaults; do not continue using schema 2 callers with that package.
 No mailbox/configuration/receipt migration is required; receipts stay schema 1.
 
