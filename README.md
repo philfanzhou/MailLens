@@ -20,7 +20,7 @@ no stable `v0.1.0` is published. Further publication follows the
 
 - Native Windows, **Classic Outlook** with an existing accessible profile, and
   **Windows PowerShell 5.1**. New Outlook is unsupported.
-- OpenCode: native discovery is tested with **1.18.30**, not every past/future
+- OpenCode: the native discovery baseline is **2.0.28**, not every past/future
   version. See [development checks](docs/development.md) for the pinned evidence.
 - The installer uses built-in PowerShell/.NET. Git is needed for the checkout
   route below, not for an end user's installer. No Pester, Python, Office interop
@@ -76,25 +76,53 @@ user/global):
 $LASTEXITCODE
 ```
 
-Then verify that OpenCode discovers exactly the copy you installed, using a
-fresh OpenCode process (`opencode.exe debug skill` is the documented tested
-baseline, see the prerequisites above):
+Then verify exactly the installed copy using OpenCode **2.0.28**. V2 uses
+`GET /api/skill` with a `{ location, data }` envelope and `id`/`path` fields.
+An early empty list can precede plugin activation. The development helper below
+starts its own authenticated foreground loopback service on an available port,
+waits for `opencode.config.skill` to become active, and stops only that service
+in `finally`. It neither uses nor restarts the managed background service.
+Keep the same scope environment used for installation and select the project
+where you will use MailLens (for a project install, that exact project).
 
 ```powershell
-$discovery = & opencode.exe debug skill | Out-String
-if ($LASTEXITCODE -ne 0) { throw 'OpenCode discovery failed.' }
-$skills = ConvertFrom-Json -InputObject $discovery
-$mailLens = @($skills | Where-Object name -CEQ 'mail-lens')
-$mailLens.Count        # Expected: exactly 1
-$mailLens[0].location  # Must be the installer-printed target plus \SKILL.md,
-                       # for example C:\Users\synthetic-user\.config\opencode\skills\mail-lens\SKILL.md
+. (Join-Path $source 'scripts\ci-process.ps1')
+$cli = (Get-Command opencode.exe -CommandType Application -ErrorAction Stop).Source
+$version = Invoke-CIProcess $cli @('--version') $source
+if ($version.Code -ne 0 -or $version.Out.Trim() -cne 'opencode v2.0.28') {
+    throw 'This verification requires OpenCode 2.0.28.'
+}
+$project = (Get-Location).ProviderPath # Or the absolute selected project path.
+$target = Read-Host 'Paste the installer-printed absolute mail-lens target'
+$entryPath = Join-Path $source 'skills\mail-lens\SKILL.md'
+$utf8 = New-Object Text.UTF8Encoding($false, $true)
+$entry = [IO.File]::ReadAllText($entryPath, $utf8).Replace("`r`n", "`n")
+$front = [regex]::Match($entry, '\A---\n.*?\n---\n', 'Singleline')
+$description = [regex]::Match($front.Value, '(?m)^description: (.+)$').Groups[1].Value
+$service = $null
+try {
+    $service = Start-CIService $cli $project
+    $skills = @(Wait-CISkills $service)
+    Assert-CITarget $skills (Join-Path $target 'SKILL.md') $entry.Substring($front.Length) $description
+    foreach ($file in Get-ChildItem (Join-Path $source 'skills\mail-lens') -File -Recurse) {
+        $relative = $file.FullName.Substring((Join-Path $source 'skills\mail-lens').Length + 1)
+        if ((Get-FileHash (Join-Path $target $relative) -Algorithm SHA256).Hash -cne
+            (Get-FileHash $file.FullName -Algorithm SHA256).Hash) { throw 'Installed resource differs.' }
+    }
+    'Exact installed MailLens path, instructions and resources verified.'
+} finally { Stop-CIService $service }
 ```
 
-Check the reported `location`; a duplicate `mail-lens` in another discovery root
-can otherwise silently satisfy a name-only check. Each `debug skill` invocation
-is a fresh OpenCode process, while a separately running OpenCode session keeps
-its already-loaded skills: restart it after any install/update/uninstall change
-before asking it to use MailLens.
+This checks exactly one `id == mail-lens`, its absolute `path`, name, complete
+Chinese description/body and supporting bytes against your trusted source.
+A stale package or a different selected duplicate fails. Install/update the
+**complete MailLens package** as well as upgrading OpenCode; a CLI upgrade alone
+does not update MailLens. Restart your normal OpenCode process after lifecycle
+changes so its cached instructions reload. The check admits no model request and
+makes no claim about autonomous skill selection or model obedience. Service
+initialization/HTTP errors and deadlines fail explicitly rather than mean absence.
+See [development checks](docs/development.md#pinned-cli-discovery) for the isolated
+native CI variant, explicit skill admission and its boundaries.
 
 The installed `mail-lens` directory is an independent copy: moving or deleting
 the source checkout does not update or remove it. Retain a standalone copy of
@@ -123,7 +151,7 @@ project at `<absolute project path>`), following `README.md`." The agent should:
    reset, clean, switch or discard an existing user's checkout; on any mismatch,
    stop and report it instead.
 3. Install exactly one scope with the existing `scripts/install.ps1`, then run
-   `-Action Status` and the fresh `opencode.exe debug skill` location check as
+   `-Action Status` and the owned V2 service/path/content check as
    shown above.
 4. Report the actual results: selected SHA and clean-tree outcome, chosen scope,
    installer-printed target, exit codes and the discovered SKILL.md location.

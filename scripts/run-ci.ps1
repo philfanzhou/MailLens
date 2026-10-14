@@ -23,17 +23,16 @@ try {
         $path = Join-Path $repository 'tests/unit'
         $required = 'Installer.Tests.ps1;Outlook.Browse.Tests.ps1;Outlook.Detail.Tests.ps1;Outlook.Search.Tests.ps1;Outlook.Session.Tests.ps1;CI.Tests.ps1'
     } else {
-        $url = 'https://github.com/anomalyco/opencode/releases/download/v1.18.30/opencode-windows-x64-baseline.zip'
-        $digest = '8c34c5767a688e8d6c4640b4893d34f08f08b071ed0043c940dc5be17a3b9233'
-        $archive = Join-Path $RunRoot 'opencode.zip'
-        Write-Output "OpenCode provenance: $url; release API SHA-256=$digest; source=5cd8e68fdd72b27818d26d168b9c7a06b359567e."
+        . (Join-Path $PSScriptRoot 'ci-process.ps1')
+        $url = 'https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-2.0.28.tgz'
+        $integrity = 'IZLtEGaaJ7Ms0EWSxNHZBMqwZgov+9k4XRWLoYNHcIbhcq97ExoADJ/WEM5UpdZA4lTJnygLLV4xPItvb6j/Qw=='
+        $archive = Join-Path $RunRoot 'opencode.tgz'
+        Write-Output "OpenCode provenance: $url; npm integrity=sha512-$integrity; source=026b106bc5d41b679ffc413264229c340871e4d3."
         Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archive -TimeoutSec 180
-        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $digest) { throw 'OpenCode archive digest mismatch.' }
-        $tools = Join-Path $RunRoot 'opencode'
-        Expand-Archive -LiteralPath $archive -DestinationPath $tools
-        $executables = @(Get-ChildItem -LiteralPath $tools -Filter opencode.exe -File -Recurse)
-        if ($executables.Count -ne 1) { throw 'Pinned OpenCode executable missing or ambiguous.' }
-        $env:MAIL_LENS_OPENCODE = $executables[0].FullName
+        $env:MAIL_LENS_OPENCODE = Expand-CIOpenCodeArchive $archive (Join-Path $RunRoot 'opencode') $integrity
+        $version = Invoke-CIProcess $env:MAIL_LENS_OPENCODE @('--version') $repository
+        if ($version.Code -ne 0 -or $version.Out.Trim() -cne 'opencode v2.0.28') { throw 'Unexpected OpenCode version.' }
+        Write-Output "Integrity-verified native OpenCode version: $($version.Out.Trim())."
         $path = Join-Path $repository 'tests/integration'
         $required = 'OpenCode.Discovery.Tests.ps1'
     }

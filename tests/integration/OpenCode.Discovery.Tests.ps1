@@ -10,15 +10,22 @@
         Invoke-CIProcess $script:PowerShell $arguments $script:Project
     }
     function Get-DiscoveredSkills {
-        $result = Invoke-CIProcess $env:MAIL_LENS_OPENCODE @('debug', 'skill') $script:Project
-        if ($result.Code -ne 0) { throw "OpenCode discovery failed: $($result.Error)" }
-        ConvertFrom-CISkills $result.Out
+        $service = $null
+        try {
+            $service = Start-CIService $env:MAIL_LENS_OPENCODE $script:Project
+            Wait-CISkills $service
+        } finally { Stop-CIService $service }
     }
     function Assert-DiscoveredPackage([string]$Target = $script:Target, [string]$Source = $script:Source) {
         $entry = [IO.File]::ReadAllText((Join-Path $Source 'skills/mail-lens/SKILL.md'), $script:Utf8).Replace("`r`n", "`n")
         $front = [regex]::Match($entry, '\A---\n.*?\n---\n', [Text.RegularExpressions.RegexOptions]::Singleline)
         $description = [regex]::Match($front.Value, '(?m)^description: (.+)$').Groups[1].Value.TrimEnd("`r")
-        Assert-CITarget @(Get-DiscoveredSkills) (Join-Path $Target 'SKILL.md') $entry.Substring($front.Length) $description
+        $service = $null
+        try {
+            $service = Start-CIService $env:MAIL_LENS_OPENCODE $script:Project
+            Assert-CITarget @(Wait-CISkills $service) (Join-Path $Target 'SKILL.md') $entry.Substring($front.Length) $description
+            Assert-CISkillActivation $service $entry.Substring($front.Length)
+        } finally { Stop-CIService $service }
         foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $Source 'skills/mail-lens') -File -Recurse)) {
             $relative = $file.FullName.Substring((Join-Path $Source 'skills/mail-lens').Length + 1)
             (Get-FileHash -LiteralPath (Join-Path $Target $relative) -Algorithm SHA256).Hash | Should -BeExactly (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
@@ -58,7 +65,7 @@ Describe 'Pinned OpenCode native isolated discovery' {
         foreach ($key in @('XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', 'OPENCODE_TEST_HOME')) { [void][IO.Directory]::CreateDirectory($values[$key]) }
         Write-DiscoveryText $env:OPENCODE_CONFIG "{}`n"
         $version = Invoke-CIProcess $env:MAIL_LENS_OPENCODE @('--version') $script:Project
-        if ($version.Code -ne 0 -or $version.Out.Trim() -cne '1.18.30') { throw 'Unexpected OpenCode version.' }
+        if ($version.Code -ne 0 -or $version.Out.Trim() -cne 'opencode v2.0.28') { throw 'Unexpected OpenCode version.' }
         Write-Host "Native OpenCode version: $($version.Out.Trim())."
     }
     AfterEach {
@@ -83,10 +90,10 @@ Describe 'Pinned OpenCode native isolated discovery' {
         [IO.Directory]::Delete($moved, $true); [IO.Directory]::Delete($script:Source, $true)
         $before = Get-DiscoverySnapshot $script:Target
         (Invoke-Installer 'Status').Code | Should -Be 0; (Get-DiscoverySnapshot $script:Target) | Should -BeExactly $before
-        @(Get-DiscoveredSkills | Where-Object name -CEQ 'mail-lens').Count | Should -Be 1
+        @(Get-DiscoveredSkills | Where-Object id -CEQ 'mail-lens').Count | Should -Be 1
         (Invoke-Installer 'Uninstall').Code | Should -Be 0
         [IO.Directory]::Exists($script:Target) | Should -BeFalse
-        @(Get-DiscoveredSkills | Where-Object name -CEQ 'mail-lens').Count | Should -Be 0
+        @(Get-DiscoveredSkills | Where-Object id -CEQ 'mail-lens').Count | Should -Be 0
     }
     It 'keeps a valid skill discoverable after <Receipt> receipt rejects update/uninstall' -ForEach @(@{Receipt='missing'}, @{Receipt='corrupt'}) {
         Select-DiscoveryScope 'Project'; (Invoke-Installer).Code | Should -Be 0
@@ -105,19 +112,20 @@ Describe 'Pinned OpenCode native isolated discovery' {
         Write-DiscoveryText (Join-Path $other 'SKILL.md') "---`nname: synthetic-other`ndescription: Synthetic sentinel`n---`nSynthetic preserved skill.`n"
         $config = Join-Path $script:Project '.opencode/opencode.json'; Write-DiscoveryText $config "{}`n"
         $otherBefore = Get-DiscoverySnapshot $other
-        $winner = @(Get-DiscoveredSkills | Where-Object name -CEQ 'mail-lens')
+        $winner = @(Get-DiscoveredSkills | Where-Object id -CEQ 'mail-lens')
         $winner.Count | Should -Be 1
         # OpenCode may normalize its synthetic config; snapshot after discovery.
         $configBefore = [IO.File]::ReadAllBytes($config)
-        @((Join-Path $script:Target 'SKILL.md'), (Join-Path $globalTarget 'SKILL.md')) | Should -Contain ([IO.Path]::GetFullPath($winner[0].location))
+        # V2 loads project roots after global roots; the selected id is the project copy.
+        Assert-DiscoveredPackage $script:Target
         (Invoke-Installer 'Uninstall').Code | Should -Be 0
         [IO.Directory]::Exists($script:Target) | Should -BeFalse
         (Get-DiscoverySnapshot $globalTarget) | Should -BeExactly $globalBefore
         Assert-DiscoveredPackage $globalTarget
         (Get-DiscoverySnapshot $other) | Should -BeExactly $otherBefore
         [Convert]::ToBase64String([IO.File]::ReadAllBytes($config)) | Should -BeExactly ([Convert]::ToBase64String($configBefore))
-        @(Get-DiscoveredSkills | Where-Object name -CEQ 'synthetic-other').Count | Should -Be 1
+        @(Get-DiscoveredSkills | Where-Object id -CEQ 'synthetic-other').Count | Should -Be 1
         Select-DiscoveryScope 'default'; (Invoke-Installer 'Uninstall').Code | Should -Be 0
-        @(Get-DiscoveredSkills | Where-Object name -CEQ 'mail-lens').Count | Should -Be 0
+        @(Get-DiscoveredSkills | Where-Object id -CEQ 'mail-lens').Count | Should -Be 0
     }
 }
