@@ -104,10 +104,10 @@ try {
     $service = Start-CIService $cli $project
     $skills = @(Wait-CISkills $service)
     Assert-CITarget $skills (Join-Path $target 'SKILL.md') $entry.Substring($front.Length) $description
-    foreach ($file in Get-ChildItem (Join-Path $source 'skills\mail-lens') -File -Recurse) {
+    foreach ($file in Get-ChildItem -LiteralPath (Join-Path $source 'skills\mail-lens') -File -Recurse) {
         $relative = $file.FullName.Substring((Join-Path $source 'skills\mail-lens').Length + 1)
-        if ((Get-FileHash (Join-Path $target $relative) -Algorithm SHA256).Hash -cne
-            (Get-FileHash $file.FullName -Algorithm SHA256).Hash) { throw 'Installed resource differs.' }
+        if ((Get-FileHash -LiteralPath (Join-Path $target $relative) -Algorithm SHA256).Hash -cne
+            (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash) { throw 'Installed resource differs.' }
     }
     'Exact installed MailLens path, instructions and resources verified.'
 } finally { Stop-CIService $service }
