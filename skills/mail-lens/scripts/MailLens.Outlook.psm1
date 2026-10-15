@@ -1431,4 +1431,391 @@ function Invoke-MailLensFileRequest {
     }
 }
 
-Export-ModuleMember -Function New-MailLensComAdapter, Get-MailLensRuntime, Invoke-MailLensRequest, Invoke-MailLensFileRequest, Get-MailLensExitCode
+# Managed presentation and private selection state. This is not an authentication boundary.
+function Get-MailLensViewField {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -ne $property) { return ,$property.Value }
+    return $null
+}
+
+function Assert-MailLensViewShape {
+    param($Object, [hashtable]$Fields)
+    if ($Object -isnot [pscustomobject]) { throw 'Invalid object.' }
+    foreach ($name in $Fields.Keys) {
+        if ($name -cnotin @($Object.PSObject.Properties.Name)) { throw 'Missing field.' }
+        $value = $Object.$name; $kind = $Fields[$name]
+        if ($kind.EndsWith('?') -and $null -eq $value) { continue }
+        switch ($kind.TrimEnd('?')) {
+            'string' { if ($value -isnot [string]) { throw 'Invalid string.' } }
+            'identity' { if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value)) { throw 'Invalid identity.' } }
+            'int' { if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0) { throw 'Invalid count.' } }
+            'bool' { if ($value -isnot [bool]) { throw 'Invalid boolean.' } }
+            'array' { if ($value -isnot [array]) { throw 'Invalid array.' } }
+            'object' { if ($value -isnot [pscustomobject]) { throw 'Invalid object.' } }
+            default { throw 'Invalid field specification.' }
+        }
+    }
+}
+
+function Select-MailLensViewFields {
+    param($Object, [hashtable]$Fields)
+    Assert-MailLensViewShape $Object $Fields
+    $selected = [ordered]@{}
+    foreach ($name in ($Fields.Keys | Sort-Object)) { $selected[$name] = $Object.$name }
+    return $selected
+}
+
+function Assert-MailLensPrivatePath {
+    param([string]$Path, [switch]$OutsideRepository)
+    if (-not [IO.Path]::IsPathRooted($Path) -or $Path -match '^[A-Za-z]:($|[^\\/])' -or $Path -match '^\\[^\\]') { throw 'Absolute path required.' }
+    $canonical = [IO.Path]::GetFullPath($Path)
+    if ($canonical.Length -gt ([IO.Path]::GetPathRoot($canonical)).Length) { $canonical = $canonical.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) }
+    $cursor = $canonical
+    while (-not [string]::IsNullOrEmpty($cursor)) {
+        if ([IO.File]::Exists($cursor) -or [IO.Directory]::Exists($cursor)) {
+            if (([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Reparse path unavailable.' }
+        }
+        if ($OutsideRepository -and ([IO.File]::Exists((Join-Path $cursor '.git')) -or [IO.Directory]::Exists((Join-Path $cursor '.git')))) { throw 'Repository path unavailable.' }
+        $parent = [IO.Path]::GetDirectoryName($cursor)
+        if ($parent -eq $cursor) { break }; $cursor = $parent
+    }
+    return $canonical
+}
+
+function Read-MailLensPrivateJson {
+    param([string]$Path)
+    $null = Assert-MailLensPrivatePath $Path
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $text = (New-Object Text.UTF8Encoding($false, $true)).GetString($bytes)
+    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) { throw 'Unexpected private file BOM.' }
+    return (ConvertFrom-Json -InputObject $text -ErrorAction Stop)
+}
+
+function Get-MailLensPrivateHash {
+    param([string]$Path)
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($hash.ComputeHash([IO.File]::ReadAllBytes($Path)))).Replace('-', '').ToLowerInvariant() }
+    finally { $hash.Dispose() }
+}
+
+function Write-MailLensPrivateJson {
+    param([string]$Path, $Value, [scriptblock]$CancellationRequested = { $false })
+    $null = Assert-MailLensPrivatePath $Path
+    $temporary = Join-Path ([IO.Path]::GetDirectoryName($Path)) ('.maillens-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $stream = $null
+    try {
+        $bytes = (New-Object Text.UTF8Encoding($false, $true)).GetBytes((ConvertTo-Json -InputObject $Value -Depth 30 -Compress))
+        $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $stream.Write($bytes, 0, $bytes.Length); $stream.Dispose(); $stream = $null
+        Assert-MailLensNotCancelled $CancellationRequested
+        [IO.File]::Move($temporary, $Path)
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+
+function New-MailLensOwnedRun {
+    $root = Assert-MailLensPrivatePath ([IO.Path]::GetTempPath()) -OutsideRepository
+    if (-not [IO.Directory]::Exists($root)) { throw 'Temporary location unavailable.' }
+    $run = Join-Path $root ('mail-lens-' + [Guid]::NewGuid().ToString('N'))
+    # Reserve the name before directory creation. Never adopt a preexisting run.
+    $reservationPath = $run + '.maillens-lock'; $reservation = $null
+    try {
+        $reservation = [IO.File]::Open($reservationPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        if ([IO.Directory]::Exists($run) -or [IO.File]::Exists($run)) { throw 'Run collision.' }
+        [void][IO.Directory]::CreateDirectory($run)
+        $null = Assert-MailLensPrivatePath $run -OutsideRepository
+        return $run
+    } finally {
+        if ($null -ne $reservation) { $reservation.Dispose(); [IO.File]::Delete($reservationPath) }
+    }
+}
+
+function ConvertTo-MailLensCompactView {
+    param($Result, [int]$ExitCode, $Request, [string]$RunDirectory)
+    Assert-MailLensViewShape $Result @{ schemaVersion='int'; operation='string?'; status='string'; startedAt='string'; endedAt='string'; scope='object'; warnings='array'; errors='array'; warningCount='int'; warningSummary='array'; warningSamplesTruncated='bool'; data='object?' }
+    if ($Result.schemaVersion -ne 2 -or $Result.status -cnotin @('complete','partial','failed','cancelled') -or $ExitCode -ne (Get-MailLensExitCode $Result.status)) { throw 'Envelope mismatch.' }
+    $validationFailure = ($null -eq $Result.operation -and $Result.status -ceq 'failed')
+    if ($validationFailure) {
+        if (@($Result.errors | Where-Object { $_.code -cin @('invalid_request_file','invalid_request','unsupported_schema','unsupported_operation') }).Count -ne $Result.errors.Count) { throw 'Invalid validation diagnostic.' }
+    } elseif ($Result.operation -cnotin @('browse','search','diagnose','folders','get') -or $Result.operation -cne (Get-MailLensViewField $Request 'operation')) { throw 'Operation mismatch.' }
+    if ($Result.status -in @('failed','cancelled') -and $Result.errors.Count -eq 0) { throw 'Missing diagnostic.' }
+    Assert-MailLensViewShape $Result.scope @{ stores='array'; folders='array' }
+    $errors = @(); $groups = @()
+    foreach ($errorRow in $Result.errors) {
+        Assert-MailLensViewShape $errorRow @{ code='string'; message='string' }
+        $safeCode = ConvertTo-MailLensDiagnosticToken $errorRow.code 'code'
+        $errors += [ordered]@{ code=$safeCode; message=(Get-MailLensSafeMessage $safeCode); operation=$Result.operation
+            stage=(ConvertTo-MailLensDiagnosticToken (Get-MailLensViewField $errorRow 'stage') 'stage')
+            property=(ConvertTo-MailLensDiagnosticToken (Get-MailLensViewField $errorRow 'property') 'property'); hResult=(Get-MailLensSafeHResult (Get-MailLensViewField $errorRow 'hResult')) }
+    }
+    $warningTotal = 0
+    foreach ($group in $Result.warningSummary) {
+        Assert-MailLensViewShape $group @{code='string'; stage='string?'; property='string?'; count='int'}
+        $groups += [ordered]@{code=(ConvertTo-MailLensDiagnosticToken $group.code 'code'); stage=(ConvertTo-MailLensDiagnosticToken $group.stage 'stage'); property=(ConvertTo-MailLensDiagnosticToken $group.property 'property'); count=$group.count}
+        $warningTotal += $group.count
+    }
+    if ($warningTotal -ne $Result.warningCount) { throw 'Warning count mismatch.' }
+    $requested = Get-MailLensViewField $Result.scope 'requested'
+    if ($null -ne $requested) {Assert-MailLensViewShape $requested @{allMailboxes='bool';mailboxes='array';folders='array';includeDescendants='bool';defaultInbox='bool'}}
+    if ($Result.status -cin @('complete','partial') -and $Result.operation -cin @('folders','search') -and $null -eq $requested) {throw 'Missing requested scope.'}
+    $view = [ordered]@{ runDirectory=$RunDirectory; status=$Result.status; operation=$Result.operation; exitCode=$ExitCode
+        requestedScope=[ordered]@{defaultInbox=($Result.operation -ceq 'browse' -and $null -eq (Get-MailLensViewField $Request 'storeId')) -or (Get-MailLensViewField $requested 'defaultInbox') -eq $true
+            allMailboxes=(Get-MailLensViewField $Request 'allMailboxes') -eq $true; includeDescendants=(Get-MailLensViewField $requested 'includeDescendants') -eq $true
+            selectedMailboxCount=@((Get-MailLensViewField $Request 'mailboxes') | Where-Object {$null -ne $_}).Count; selectedFolderCount=@((Get-MailLensViewField $Request 'folders') | Where-Object {$null -ne $_}).Count
+            exactBrowseFolder=($Result.operation -ceq 'browse' -and $null -ne (Get-MailLensViewField $Request 'folderId'))}
+        resolvedScope=[ordered]@{storeCount=$Result.scope.stores.Count; folderCount=$Result.scope.folders.Count; stores=@(); locations=@(); omittedStoreCount=[Math]::Max(0,$Result.scope.stores.Count-10); omittedLocationCount=[Math]::Max(0,$Result.scope.folders.Count-10)}
+        coverage=$null; warningCount=$Result.warningCount; warningSummary=$groups; warningSamplesTruncated=$Result.warningSamplesTruncated; errors=$errors }
+    foreach ($store in ($Result.scope.stores | Select-Object -First 10)) { $view.resolvedScope.stores += Select-MailLensViewFields $store @{storeName='string?';readable='bool'} }
+    foreach ($folder in ($Result.scope.folders | Select-Object -First 10)) {
+        $location=Select-MailLensViewFields $folder @{folderPath='string?';readable='bool'}
+        $display=Get-MailLensViewField $folder 'storeName'; if ($null -ne $display -and $display -isnot [string]) {throw 'Invalid store display.'}
+        $location.storeName=$display; $view.resolvedScope.locations += $location
+    }
+    $reliable = $Result.status -cin @('complete','partial')
+    if ($reliable -or $null -ne $Result.data) {
+        Assert-MailLensViewShape $Result.data @{ coverage='object'; discoveryAttempted='bool' }
+        $view.coverage = Select-MailLensViewFields $Result.data.coverage @{evaluated='bool';complete='bool?';mountedStores='int?';discoveredStores='int';readableStores='int';discoveredFolders='int';readableFolders='int'}
+    }
+    $rows = @(); $entries = @(); $data = $null
+    if ($Result.operation -cin @('browse','search','folders')) {
+        $dataName = $Result.operation; if ($dataName -eq 'folders') { $dataName = 'directory' }
+        $data = Get-MailLensViewField $Result.data $dataName
+        if ($reliable -and $null -eq $data) { throw 'Missing operation data.' }
+        if ($null -ne $data) {
+            $fields = @{maxDurationSeconds='int';scanComplete='bool';stopReason='string?'}
+            if ($Result.operation -eq 'browse') {
+                foreach ($name in @('limit','maxItems','visitedCount','returnedCount','nonMailCount','unreadableCount')) {$fields[$name]='int'}
+                $fields.ordering='string'; $fields.moreAvailable='bool?'
+            } else {
+                $fields.maxFolders='int'; $fields.attemptedFolderCount='int'
+                if ($Result.operation -eq 'search') {
+                    foreach ($name in @('summaryLimit','maxItems','visitedCount','matchedCount','returnedCount')) {$fields[$name]='int'}
+                    foreach ($name in @('exhaustive','matchedCountIsExact','resultsTruncated')) {$fields[$name]='bool'}
+                    $fields.ordering='string'
+                }
+            }
+            $view.metrics = Select-MailLensViewFields $data $fields
+            if ($data.stopReason -cnotin @($null,'end','limit','item_budget','time_budget','folder_budget','summary_limit','cancelled')) {throw 'Invalid stop reason.'}
+            if ($Result.operation -ceq 'browse' -and $data.ordering -cnotin @('receivedTimeDescending','collectionOrder')) {throw 'Invalid browse ordering.'}
+            if ($Result.operation -ceq 'search' -and $data.ordering -cne 'retainedEffectiveTimeDescending') {throw 'Invalid search ordering.'}
+        }
+    }
+    if ($Result.operation -eq 'search' -and $null -ne $data) {
+        Assert-MailLensViewShape $data @{range='object';keywords='array';keywordGroups='array';listOnly='bool';sender='string?';folderCoverage='array'}
+        $view.range = Select-MailLensViewFields $data.range @{mode='string';timeZone='string';fromInclusive='string?';toExclusive='string?';localFromInclusive='string?';localToExclusive='string?'}
+        foreach ($term in $data.keywords) {if ($term -isnot [string]) {throw 'Invalid term.'}}
+        foreach ($group in $data.keywordGroups) { if ($group -isnot [array]) {throw 'Invalid terms.'}; foreach ($term in $group) {if ($term -isnot [string]) {throw 'Invalid term.'}} }
+        $view.keywords=$data.keywords; $view.keywordGroups=$data.keywordGroups; $view.listOnly=$data.listOnly; $view.sender=$data.sender
+        $view.searchCoverage=[ordered]@{attemptedRows=$data.folderCoverage.Count;incompleteFolders=0;unreadableCount=0;timestampClassificationGaps=0}
+        foreach ($folder in $data.folderCoverage) {
+            Assert-MailLensViewShape $folder @{complete='bool';unreadableCount='int';timestampClassificationComplete='bool'}
+            if (-not $folder.complete) {$view.searchCoverage.incompleteFolders++}; if (-not $folder.timestampClassificationComplete) {$view.searchCoverage.timestampClassificationGaps++}
+            $view.searchCoverage.unreadableCount += $folder.unreadableCount
+        }
+    }
+    if ($Result.operation -cin @('browse','search')) {
+        if ($null -ne $data) { Assert-MailLensViewShape $data @{summaries='array'}; $rows=@($data.summaries) }
+        $view.selectedCount=0; $view.omittedSummaryCount=$rows.Count; $view.summaries=@()
+        if ($reliable) {
+            if ($data.returnedCount -ne $rows.Count) {throw 'Summary count mismatch.'}
+            for ($position=1; $position -le [Math]::Min(10,$rows.Count); $position++) {
+                $row=$rows[$position-1]
+                Assert-MailLensViewShape $row @{storeId='identity';entryId='identity';folderId='identity';subject='string';timestamp='string?';timestampField='string?';storeName='string?';folderPath='string?'}
+                $label='M'+$position
+                $summary=Select-MailLensViewFields $row @{subject='string';timestamp='string?';timestampField='string?';storeName='string?';folderPath='string?'}
+                foreach ($flag in @('timestampClassificationComplete','consistencyAvailable','contentChangedDuringRead')) {
+                    if ($flag -cin @($row.PSObject.Properties.Name)) {Assert-MailLensViewShape $row @{$flag='bool'}; $summary[$flag]=$row.$flag}
+                }
+                $summary.label=$label; $view.summaries += $summary
+                $entries += [ordered]@{label=$label;summaryPosition=$position;storeId=$row.storeId;entryId=$row.entryId}
+            }
+            $view.selectedCount=$entries.Count; $view.omittedSummaryCount=$rows.Count-$entries.Count
+        }
+    }
+    if ($Result.operation -ceq 'get' -and $reliable) {
+        $detail=Get-MailLensViewField $Result.data 'detail'
+        $view.detail=Select-MailLensViewFields $detail @{body='string';bodySource='string';bodyOffsetUnit='string';bodyTotalLength='int';bodyOffset='int';bodyLength='int';bodyReturnedLength='int';bodyTruncated='bool';lastModificationTime='string?';lastModificationTimeAfter='string?';consistencyAvailable='bool';contentChangedDuringRead='bool';sentOn='string?';receivedTime='string?';creationTime='string?';recipientsComplete='bool';attachmentNamesComplete='bool'}
+        Assert-MailLensViewShape $detail @{source='object';sender='object';recipients='array';attachmentNames='array'}
+        $view.detail.source=Select-MailLensViewFields $detail.source @{subject='string?';storeName='string?';folderPath='string?';timestamp='string?';timestampField='string?'}
+        Assert-MailLensViewShape $detail.source @{storeId='identity';entryId='identity';folderId='identity'}
+        if ($detail.source.storeId -cne $Request.storeId -or $detail.source.entryId -cne $Request.entryId -or $detail.bodySource -cne 'Body' -or $detail.bodyOffsetUnit -cne 'unicodeScalarValues') {throw 'Detail identity/source mismatch.'}
+        $expectedOffset=0; $expectedLength=2000
+        if ($null -ne (Get-MailLensViewField $Request 'bodyOffset')) {$expectedOffset=$Request.bodyOffset}; if ($null -ne (Get-MailLensViewField $Request 'bodyLength')) {$expectedLength=$Request.bodyLength}
+        if ($detail.bodyOffset -ne $expectedOffset -or $detail.bodyLength -ne $expectedLength) {throw 'Detail chunk mismatch.'}
+        $chunk=Read-MailLensBodyChunk $detail.body 0 100000 { $false }
+        if ($chunk.bodyTotalLength -ne $detail.bodyReturnedLength -or $detail.bodyReturnedLength -ne [Math]::Min($detail.bodyLength,[Math]::Max(0,$detail.bodyTotalLength-$detail.bodyOffset)) -or $detail.bodyTruncated -ne ([long]$detail.bodyOffset+$detail.bodyReturnedLength -lt $detail.bodyTotalLength)) {throw 'Invalid chunk.'}
+        $view.detail.sender=Select-MailLensViewFields $detail.sender @{displayName='string?';rawAddress='string?';addressType='string?'}
+        $view.detail.recipients=@(); foreach ($recipient in $detail.recipients) {$view.detail.recipients += Select-MailLensViewFields $recipient @{displayName='string?';rawAddress='string?';addressType='string?';recipientType='int?'}}
+        foreach ($name in $detail.attachmentNames) {if ($name -isnot [string]) {throw 'Invalid attachment name.'}}
+        $view.detail.attachmentNames=$detail.attachmentNames
+    }
+    return @{view=$view;entries=$entries}
+}
+
+function Read-MailLensSelection {
+    param([string]$RunDirectory, [string]$Label)
+    if ($Label -cnotmatch '^M([1-9]|10)$') {throw 'Invalid label.'}
+    $run=Assert-MailLensPrivatePath $RunDirectory -OutsideRepository
+    if (-not [IO.Directory]::Exists($run)) {throw 'Missing run.'}
+    $index=Read-MailLensPrivateJson (Join-Path $run 'index.json')
+    Assert-MailLensViewShape $index @{formatVersion='int';runDirectory='string';resultFile='string';resultSha256='string';schemaVersion='int';operation='string';status='string';entries='array'}
+    if ($index.formatVersion -ne 1 -or $index.schemaVersion -ne 2 -or $index.resultFile -cne 'result.json' -or $index.runDirectory -cne $run -or $index.operation -cnotin @('browse','search') -or $index.status -cnotin @('complete','partial') -or $index.resultSha256 -cnotmatch '^[0-9a-f]{64}$') {throw 'Unbound index.'}
+    $path=Join-Path $run 'result.json'; $null=Assert-MailLensPrivatePath $path
+    if ((Get-MailLensPrivateHash $path) -cne $index.resultSha256) {throw 'Stale result.'}
+    $raw=Read-MailLensPrivateJson $path
+    $request=[pscustomobject]@{operation=$index.operation}
+    $projection=ConvertTo-MailLensCompactView $raw (Get-MailLensExitCode $index.status) $request $run
+    if ($raw.status -cne $index.status -or $index.entries.Count -ne $projection.entries.Count) {throw 'Index mismatch.'}
+    $selected=$null
+    for ($i=0; $i -lt $index.entries.Count; $i++) {
+        $entry=$index.entries[$i]; $expected=$projection.entries[$i]
+        Assert-MailLensViewShape $entry @{label='string';summaryPosition='int';storeId='identity';entryId='identity'}
+        foreach ($field in @('label','summaryPosition','storeId','entryId')) {if ($entry.$field -cne $expected[$field]) {throw 'Index association mismatch.'}}
+        if ($entry.label -ceq $Label) {$selected=$entry}
+    }
+    if ($null -eq $selected) {throw 'Unknown label.'}
+    return $selected
+}
+
+function Write-MailLensCompactStdout {
+    param([string]$Json)
+    $bytes=(New-Object Text.UTF8Encoding($false,$true)).GetBytes($Json+[Environment]::NewLine)
+    $stream=[Console]::OpenStandardOutput()
+    $stream.Write($bytes,0,$bytes.Length); $stream.Flush()
+}
+
+function Invoke-MailLensManagedRequest {
+    [CmdletBinding()]
+    param([string]$RequestPath, [string]$RunDirectory, [string]$Label, $BodyOffset=0, $BodyLength=2000,
+        $Adapter=(New-MailLensComAdapter), $Runtime=(Get-MailLensRuntime), [scriptblock]$CancellationRequested={ $false },
+        [scriptblock]$WriteView={param($Json) Write-MailLensCompactStdout $Json})
+    $run=$null
+    try {
+        $labelMode=$PSBoundParameters.ContainsKey('RunDirectory') -or $PSBoundParameters.ContainsKey('Label')
+        if ($labelMode) {
+            if ($PSBoundParameters.ContainsKey('RequestPath') -or -not $RunDirectory -or -not $Label -or $BodyOffset -isnot [int] -or $BodyOffset -lt 0 -or $BodyLength -isnot [int] -or $BodyLength -lt 1 -or $BodyLength -gt 100000) {throw 'Invalid managed mode.'}
+            $entry=Read-MailLensSelection $RunDirectory $Label
+            $request=[pscustomobject]@{schemaVersion=2;operation='get';storeId=$entry.storeId;entryId=$entry.entryId;bodyOffset=$BodyOffset;bodyLength=$BodyLength}
+            $originalRun=Assert-MailLensPrivatePath $RunDirectory -OutsideRepository
+        } else {
+            if (-not $RequestPath -or $PSBoundParameters.ContainsKey('BodyOffset') -or $PSBoundParameters.ContainsKey('BodyLength')) {throw 'Invalid managed mode.'}
+            $source=Assert-MailLensPrivatePath $RequestPath -OutsideRepository
+        }
+        Assert-MailLensNotCancelled $CancellationRequested
+        $run=New-MailLensOwnedRun
+        $requestFile=Join-Path $run 'request.json'; $resultFile=Join-Path $run 'result.json'
+        if ($labelMode) {Write-MailLensPrivateJson $requestFile $request $CancellationRequested}
+        else {
+            # Byte-copy preserves optional request BOM and raw parse/validation failure semantics.
+            $inputBytes=[IO.File]::ReadAllBytes($source)
+            $stream=[IO.File]::Open($requestFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try {$stream.Write($inputBytes,0,$inputBytes.Length)} finally {$stream.Dispose()}
+            $request=$null
+            try {
+                $text=(New-Object Text.UTF8Encoding($false,$true)).GetString($inputBytes)
+                if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {$text=$text.Substring(1)}
+                $request=ConvertFrom-Json -InputObject $text -ErrorAction Stop
+            } catch { $request=$null }
+        }
+        $code=Invoke-MailLensFileRequest $requestFile $resultFile $Adapter $Runtime $CancellationRequested
+        $result=Read-MailLensPrivateJson $resultFile
+        $projection=ConvertTo-MailLensCompactView $result $code $request $run
+        if ($labelMode) {$projection.view.label=$Label; $projection.view.selectionRunDirectory=$originalRun}
+        # Construct/encode the entire view before committing a usable index or emitting success.
+        $json=ConvertTo-Json -InputObject $projection.view -Depth 30 -Compress
+        $null=(New-Object Text.UTF8Encoding($false,$true)).GetBytes($json)
+        if ($result.operation -cin @('browse','search') -and $result.status -cin @('complete','partial')) {
+            $index=[ordered]@{formatVersion=1;runDirectory=$run;resultFile='result.json';resultSha256=(Get-MailLensPrivateHash $resultFile);schemaVersion=2;operation=$result.operation;status=$result.status;entries=@($projection.entries)}
+            Write-MailLensPrivateJson (Join-Path $run 'index.json') $index $CancellationRequested
+        }
+        & $WriteView $json
+        return $code
+    } catch {
+        $cancelled=$_.Exception.Data['MailLensCode'] -eq 'cancelled'
+        $code=1; $status='failed'; $errorCode='caller_unavailable'; $message='MailLens caller state or output is unavailable; coverage is unknown.'
+        if ($cancelled) {$code=130; $status='cancelled'; $errorCode='cancelled'; $message='MailLens caller was cancelled before completion.'}
+        $failure=[ordered]@{runDirectory=$run;status=$status;operation=$null;exitCode=$code;errors=@(@{code=$errorCode;message=$message})}
+        try {& $WriteView (ConvertTo-Json -InputObject $failure -Depth 5 -Compress)} catch { [Console]::Error.WriteLine('MailLens compact output could not be delivered.') }
+        return $code
+    }
+}
+
+function Get-MailLensSafeMessage {
+ param([string]$Code)
+ $messages=@{
+  'invalid_request'='The request contains an invalid field or value.'
+  'unsupported_schema'='schemaVersion must be the integer 2; update the complete package and request together.'
+  'unsupported_operation'='operation must be diagnose, browse, folders, search or get.'
+  'time_budget'='The cooperative time budget was reached; collection coverage is incomplete.'
+  'folder_unavailable'='The exact requested folder is unavailable.'
+  'default_store_unavailable'='The existing default store is unavailable.'
+  'default_inbox_unavailable'='The existing default Inbox is unavailable.'
+  'folder_identity_unavailable'='An attempted folder identity is unavailable.'
+  'display_metadata_unavailable'='The selected folder store metadata is unavailable.'
+  'items_unavailable'='The selected folder Items collection is unavailable.'
+  'sort_unavailable'='Sorting is unavailable; this is a bounded collection-order sample, not the latest messages.'
+  'timestamp_unavailable'='The optional ReceivedTime display timestamp is unavailable.'
+  'browse_item_unavailable'='An attempted item has unavailable identity or subject metadata.'
+  'item_budget'='The global item budget was reached.'
+  'release_failed'='An acquired Outlook reference could not be released.'
+  'cancelled'='The operation was cancelled.'
+  'folder_budget'='The global folder budget was reached; requested scope is incomplete.'
+  'store_identity_unavailable'='The selected store identity is unavailable.'
+  'folder_denied'='The selected child-folder collection is unavailable.'
+  'store_metadata_unavailable'='Mounted-store metadata is incomplete; unresolved selectors cannot be widened.'
+  'selection_incomplete'='No trustworthy requested target was resolved within the query budget.'
+  'unknown_selection'='The requested path was not found within the selected stores.'
+  'ambiguous_selection'='The requested path is ambiguous; use an exact storeId/folderId pair.'
+  'folder_identity_changed'='The exact requested folder identity changed.'
+  'store_denied'='An attempted selected store or root is unavailable.'
+  'selection_unavailable'='No trustworthy folder target could be resolved.'
+  'sent_folder_denied'='Sent Items classification is unavailable; fallback timestamps cannot certify exact time coverage.'
+  'sent_ancestry_unavailable'='Selected-folder ancestry is unavailable; fallback timestamps are qualified.'
+  'date_dst_gap'='An Outlook local timestamp is ambiguous or nonexistent in the Windows timezone.'
+  'date_unavailable'='No valid effective timestamp is available for this mail item.'
+  'consistency_unavailable'='LastModificationTime is unavailable; readable data is not a certified consistent snapshot.'
+  'date_filter_unavailable'='Date Restrict is unavailable; this folder uses the original collection under the global budgets.'
+  'sender_denied'='Sender metadata is partly unavailable; narrowing coverage is incomplete.'
+  'summary_limit'='The bounded summary limit was reached; remaining scope is unknown.'
+  'folder_capability_denied'='Repeated collection access denial closed this folder path; remaining items are unknown.'
+  'search_folder_denied'='The selected item collection is unavailable or changed; matching coverage is incomplete.'
+  'detail_property_unavailable'='The current store display metadata is unavailable.'
+  'recipient_unavailable'='Recipient address type is unavailable; unresolved names are not resolved.'
+  'detail_collection_unavailable'='A requested detail collection is unavailable or changed.'
+  'body_unavailable'='The requested plain Body is unavailable; it is not an empty body.'
+  'item_unavailable'='The exact storeId/entryId item is stale, deleted, moved or inaccessible.'
+  'unsupported_item_type'='The requested item is not a MailItem.'
+  'item_identity_unavailable'='The requested item type or exact source identity could not be verified.'
+  'item_identity_changed'='The item source changed during retrieval; reread the current identity.'
+  'item_content_changed'='The item changed during retrieval; discard combined chunks and reread.'
+  'unsupported_platform'='MailLens requires native Windows.'
+  'unsupported_powershell'='MailLens requires Windows PowerShell 5.1.'
+  'unsupported_apartment'='Launch powershell.exe with -NoProfile -STA.'
+  'outlook_unavailable'='Classic Outlook COM or the current profile is unavailable; allow legitimate prompts or check Classic Outlook installation.'
+  'version_unavailable'='The optional Outlook version is unavailable.'
+  'invalid_request_file'='The UTF-8 request file is unreadable or contains malformed JSON.'
+  'discovery_failed'='Outlook discovery failed; coverage is incomplete.'
+ }
+ if ($messages.ContainsKey($Code)) {return $messages[$Code]}
+ return 'MailLens query could not complete; inspect the private diagnostics.'
+}
+function Get-MailLensSafeHResult {
+ param($Value)
+ if ($null -eq $Value) {return $null}
+ if (($Value -isnot [int] -and $Value -isnot [long]) -or $Value -lt [int]::MinValue -or $Value -gt [int]::MaxValue) {throw 'Invalid HResult.'}
+ return $Value
+}
+function ConvertTo-MailLensDiagnosticToken {
+ param($Value,[string]$Kind)
+ if ($null -eq $Value -or $Value -ceq '') {return $Value}
+ $allowed=@{code=@('cancelled','ambiguous_selection','body_unavailable','browse_item_unavailable','consistency_unavailable','date_dst_gap','date_filter_unavailable','date_unavailable','default_inbox_unavailable','default_store_unavailable','detail_collection_unavailable','detail_property_unavailable','discovery_failed','display_metadata_unavailable','folder_budget','folder_capability_denied','folder_denied','folder_identity_changed','folder_identity_unavailable','folder_unavailable','invalid_request','invalid_request_file','item_budget','item_content_changed','item_identity_changed','item_identity_unavailable','item_unavailable','items_unavailable','outlook_unavailable','recipient_unavailable','release_failed','search_folder_denied','selection_incomplete','selection_unavailable','sender_denied','sent_ancestry_unavailable','sent_folder_denied','sort_unavailable','store_denied','store_identity_unavailable','store_metadata_unavailable','summary_limit','time_budget','timestamp_unavailable','unknown_selection','unsupported_apartment','unsupported_item_type','unsupported_operation','unsupported_platform','unsupported_powershell','unsupported_schema','version_unavailable');stage=@('acquire-folder','acquire-items','browse-items','classify-timestamp','connect','diagnose','discover-folders','get','namespace','resolve-folder','resolve-scope','restrict-date','search-items','sort-items');property=@('Address','AddressEntry','Attachments','Body','BoundedProblems','Class','Connect','Count','CreationTime','DefaultItemType','DefaultStore','Desktop','DisplayName','EntryID','FileName','FolderPath','Folders','GetDefaultFolder','GetFolderFromID','GetItemFromID','GetNamespace','GetRootFolder','Item','Items','LastModificationTime','MAPI','MailLensCode','MailLensHResult','Name','PSEdition','Parent','Property','ReceivedTime','Recipients','Resolved','Restrict','STA','SenderEmailAddress','SenderEmailType','SenderName','Sent','SentOn','Sort','Store','StoreID','Stores','Subject','Type','Version')}
+ if ($Value -isnot [string]) {throw 'Invalid diagnostic.'}
+ if ($Value -cnotin $allowed[$Kind]) {return 'unavailable'}
+ return $Value
+}
+
+Export-ModuleMember -Function New-MailLensComAdapter, Get-MailLensRuntime, Invoke-MailLensRequest, Invoke-MailLensFileRequest, Get-MailLensExitCode, Invoke-MailLensManagedRequest
