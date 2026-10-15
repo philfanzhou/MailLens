@@ -1575,11 +1575,11 @@ function ConvertTo-MailLensCompactView {
         $display=Get-MailLensViewField $folder 'storeName'; if ($null -ne $display -and $display -isnot [string]) {throw 'Invalid store display.'}
         $location.storeName=$display; $view.resolvedScope.locations += $location
     }
-    if ($null -ne $Result.data) {
+    $reliable = $Result.status -cin @('complete','partial')
+    if ($reliable -or $null -ne $Result.data) {
         Assert-MailLensViewShape $Result.data @{ coverage='object'; discoveryAttempted='bool' }
         $view.coverage = Select-MailLensViewFields $Result.data.coverage @{evaluated='bool';complete='bool?';mountedStores='int?';discoveredStores='int';readableStores='int';discoveredFolders='int';readableFolders='int'}
     }
-    $reliable = $Result.status -cin @('complete','partial')
     $rows = @(); $entries = @(); $data = $null
     if ($Result.operation -cin @('browse','search','folders')) {
         $dataName = $Result.operation; if ($dataName -eq 'folders') { $dataName = 'directory' }

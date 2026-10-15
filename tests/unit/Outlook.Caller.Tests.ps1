@@ -176,6 +176,36 @@ Describe 'Managed caller and bound private selection' {
             $result.json | Should -Match caller_unavailable
             [IO.File]::Exists((Join-Path $result.view.runDirectory 'index.json')) | Should -BeFalse
         }
+        It 'rejects diagnose <RawStatus> with missing data through managed delivery' -ForEach @(@{RawStatus='complete'},@{RawStatus='partial'}) {
+            [IO.File]::WriteAllText($fixture.request,'{"schemaVersion":2,"operation":"diagnose"}',$utf8)
+            Mock Invoke-MailLensFileRequest {
+                $raw=Invoke-MailLensRequest ([pscustomobject]@{schemaVersion=2;operation='diagnose'}) $Adapter $Runtime
+                $raw.status=$RawStatus; $raw.data=$null
+                [IO.File]::WriteAllText($OutputPath,(ConvertTo-Json $raw -Depth 30 -Compress),$utf8)
+                return (Get-MailLensExitCode $RawStatus)
+            }
+            $result=Invoke-CallerFixture $fixture $double
+            $result.code | Should -Be 1
+            $result.view.status | Should -BeExactly failed
+            $result.view.exitCode | Should -Be 1
+            $result.view.errors[0].code | Should -BeExactly caller_unavailable
+            $result.view.errors[0].message | Should -BeExactly 'MailLens caller state or output is unavailable; coverage is unknown.'
+            $result.view.operation | Should -BeNullOrEmpty
+            $result.json | Should -Not -Match '"(summaries|detail|body|label|coverage)"'
+            [IO.File]::Exists((Join-Path $result.view.runDirectory 'index.json')) | Should -BeFalse
+            (Read-MailLensPrivateJson (Join-Path $result.view.runDirectory 'result.json')).status | Should -BeExactly $RawStatus
+        }
+        It 'preserves valid managed diagnose when version metadata is <VersionState>' -ForEach @(@{VersionState='available';ExpectedCode=0},@{VersionState='unavailable';ExpectedCode=2}) {
+            [IO.File]::WriteAllText($fixture.request,'{"schemaVersion":2,"operation":"diagnose"}',$utf8)
+            if($VersionState -eq 'unavailable') {$double=New-DetailDouble -Failures @{'application.Version'=$true}}
+            $result=Invoke-CallerFixture $fixture $double
+            $result.code | Should -Be $ExpectedCode
+            $result.view.operation | Should -BeExactly diagnose
+            $result.view.coverage.evaluated | Should -BeFalse
+            $result.json | Should -Not -Match '"(summaries|detail|body|label)"|caller_unavailable'
+            [IO.File]::Exists((Join-Path $result.view.runDirectory 'index.json')) | Should -BeFalse
+            Assert-AllReleased $double
+        }
         It 'keeps raw success private when index publication fails' {
             Mock Write-MailLensPrivateJson {throw 'Synthetic secret identity'} -ParameterFilter {$Path.EndsWith('index.json')}
             $result=Invoke-CallerFixture $fixture $double
