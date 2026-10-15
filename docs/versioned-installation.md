@@ -4,8 +4,10 @@ The [published `v0.1.0-rc.1`](https://github.com/philfanzhou/MailLens/releases/t
 points to historical schema 1 commit `3298df822d8ebbe03f63df56213f59c898fa356e`.
 The [published `v0.1.0-rc.2`](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
 points to schema 2 commit `e357f79b159407d723533e53ee5014d1cd7e1a52`.
-Current schema-2 source targets `0.1.0-rc.3` in [VERSION](../VERSION) under
-[issue #40](https://github.com/philfanzhou/MailLens/issues/40); VERSION alone is
+The [published `v0.1.0-rc.3`](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.3)
+introduced the OpenCode 2.0.28 verification baseline. Current schema-2 source
+targets `0.1.0-rc.4` in [VERSION](../VERSION) under
+[issue #50](https://github.com/philfanzhou/MailLens/issues/50); VERSION alone is
 not proof of publication. Verify the actual Release/tag/full SHA using the
 procedure below before installing a published candidate. Otherwise select an
 explicitly trusted complete **40-character commit SHA** for development. Do not
@@ -56,7 +58,8 @@ requires live evidence and explicit maintainer authorization; a prerelease RC
 channel may be published before live validation only under
 the owning channel task's recorded maintainer direction (rc.1: [#25](https://github.com/philfanzhou/MailLens/issues/25);
 rc.2: [#35](https://github.com/philfanzhou/MailLens/issues/35);
-rc.3: [#40](https://github.com/philfanzhou/MailLens/issues/40)). No example here creates a tag or a Release.
+rc.3: [#40](https://github.com/philfanzhou/MailLens/issues/40);
+rc.4: [#50](https://github.com/philfanzhou/MailLens/issues/50)). No example here creates a tag or a Release.
 
 Choose a tag from the actual [repository Releases](https://github.com/philfanzhou/MailLens/releases)
 and obtain its full commit SHA from its reviewed English notes. Read the release

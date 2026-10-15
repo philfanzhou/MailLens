@@ -1,8 +1,11 @@
-# Pending compatibility changes (unreleased)
+# rc.4 candidate compatibility changes
 
-These are development changes, not a published version. Root VERSION and existing
-tags/releases are unchanged; publication needs separate maintainer direction under
-[the release procedure](../releasing.md).
+These changes are included in the `0.1.0-rc.4` candidate under
+[issue #50](https://github.com/philfanzhou/MailLens/issues/50). This retained path
+provides compatibility details for existing links; the
+[prepared rc.4 notes](v0.1.0-rc.4.md) are publication input. Verify publication
+through the actual Release and annotated tag under [the release procedure](../releasing.md),
+not this page or VERSION alone. Historical tags and releases remain unchanged.
 
 ## Omitted get body length
 
@@ -26,7 +29,7 @@ acceptance work; a stable release additionally needs [issue #11](https://github.
 
 ## Shipped compact caller and smaller instruction load
 
-Current development source includes the reviewed #44 `-View` caller: one fixed
+The rc.4 candidate includes the reviewed #44 `-View` caller: one fixed
 `-RequestPath` command emits strict UTF-8 compact output and its external run
 path. Follow-up get uses that selection run and a case-sensitive label; exact
 identities remain in an immutable private format 1 index. Complete/partial
@@ -42,3 +45,9 @@ Each answer defaults to <=3 necessary first chunks, <=2000 Unicode scalars each,
 See [usage](../usage.md) and [custom OpenCode model limits](../installation.md#custom-model-limits-and-compaction).
 These changes reduce avoidable context load without certifying live performance,
 model obedience or overflow prevention. No model configuration is inspected or edited.
+The mandatory ordinary-path load is 5396 Unicode characters, down from the approved
+original 23297 (76.84% reduction). Characters divided by two is only a rough token
+estimate, not a tokenizer measurement or performance certification. Whole-package
+rollback to rc.3 restores its older default/instructions and has no managed
+`-View` modes or format 1 index consumer; use fresh requests/results and private
+run state when updating, and never mix package members.

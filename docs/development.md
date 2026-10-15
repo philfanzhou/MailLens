@@ -173,8 +173,11 @@ Human assessment must check useful cited answers, model obedience and context
 growth; syntax/package checks and scripted scenario calculations cannot certify
 those outcomes. Whole-package update/rollback and OpenCode restart are required;
 published rc.2 already uses schema 2, while rc.1 is historical schema 1.
-The rc.3 preparation in [#40](https://github.com/philfanzhou/MailLens/issues/40)
-retains schema 2 and adds the current OpenCode 2.0.28 verification baseline.
+Published rc.3 under [#40](https://github.com/philfanzhou/MailLens/issues/40)
+added the OpenCode 2.0.28 verification baseline. The rc.4 candidate under
+[#50](https://github.com/philfanzhou/MailLens/issues/50) packages the compact caller,
+2000-scalar default and slim instructions, retaining schema 2, receipt schema 1
+and private index format 1; see [compatibility changes](releases/unreleased.md).
 Verify publication through the actual Release/tag, not VERSION alone.
 
 ## Required-check promotion
