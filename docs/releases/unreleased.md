@@ -23,3 +23,22 @@ excerpt size across these packages. See [body usage](../usage.md#bodies-attachme
 Synthetic checks do not certify native Classic Outlook, live read-only behavior,
 latency or model assessment. Those remain separate [issue #9](https://github.com/philfanzhou/MailLens/issues/9)
 acceptance work; a stable release additionally needs [issue #11](https://github.com/philfanzhou/MailLens/issues/11).
+
+## Shipped compact caller and smaller instruction load
+
+Current development source includes the reviewed #44 `-View` caller: one fixed
+`-RequestPath` command emits strict UTF-8 compact output and its external run
+path. Follow-up get uses that selection run and a case-sensitive label; exact
+identities remain in an immutable private format 1 index. Complete/partial
+selections authorize labels; failed/cancelled runs do not. Raw schema-2 two-path
+mode remains available. New callers/indexes need the complete updated package;
+old packages cannot consume them. Existing query/receipt schemas remain 2/1.
+
+The #45 Chinese entry is self-contained for browse, keyword/list-only search and
+first label get. Advanced/error/multi-chunk references load on demand; regenerated
+projection scripts and model-side private-ID variables are no longer needed.
+Each answer defaults to <=3 necessary first chunks, <=2000 Unicode scalars each,
+<=6000 total, fewer when enough. Additional reads need a deliberate bounded purpose.
+See [usage](../usage.md) and [custom OpenCode model limits](../installation.md#custom-model-limits-and-compaction).
+These changes reduce avoidable context load without certifying live performance,
+model obedience or overflow prevention. No model configuration is inspected or edited.

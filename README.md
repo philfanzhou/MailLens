@@ -4,7 +4,9 @@ A read-only OpenCode skill for searching and analyzing Classic Outlook email on
 native Windows through local COM automation.
 
 The current schema-2 source targets `0.1.0-rc.3` in root [VERSION](VERSION),
-including the bounded workflow and OpenCode 2.0.28 verification below.
+including the managed compact caller, 2000-scalar get default, self-contained
+quickstart and OpenCode 2.0.28 verification below. These development changes
+postdate the immutable published rc.3; see [pending changes](docs/releases/unreleased.md).
 [Issue #40](https://github.com/philfanzhou/MailLens/issues/40)
 owns this candidate's authorized publication. Use the actual
 [repository Releases](https://github.com/philfanzhou/MailLens/releases) and
@@ -191,8 +193,13 @@ to summarize the Starbridge contract correspondence from the last 30 days, with
 sources.” This starts bounded search in the default Inbox, without descendants;
 selected/all-mounted scope, including readable Deleted/Junk mail, must be explicit.
 Neither route performs routine diagnose or full-directory preflight. The agent
-initially projects at most ten needed summaries, keeps identities locally and
-requests a selected body's first 2000 scalar values. Attachment access is limited
+uses the shipped `-View` caller for at most ten labeled summaries, then gets
+only needed bodies by returned run directory and label. Exact IDs stay in private
+files; no per-query projection script or inline `-Command` is needed. Each answer
+defaults to at most three necessary first chunks of 2000 Unicode scalars each
+(6000 total), fewer when enough. References load only for named advanced/error
+conditions. See [custom model limits](docs/installation.md#custom-model-limits-and-compaction)
+for OpenCode context guidance. Attachment access is limited
 to filenames. The
 [usage guide](docs/usage.md) explains scope, time, terms, partial results, citations
 and troubleshooting. The installed [Chinese skill instructions](skills/mail-lens/SKILL.md)

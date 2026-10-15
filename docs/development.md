@@ -125,20 +125,43 @@ that separate evidence. Keep live mail and live validation evidence outside Git
 and public CI logs. Run-specific reports are local synthetic NUnit XML files;
 CI does not upload user data or credentials.
 
+## Instruction-load verification
+
+For the #45 quickstart, count Unicode characters in the entry plus any reference
+required on the ordinary path, counting each file once. No references are now
+mandatory for browse/search/list-only/first label get. From the repository root:
+
+```sh
+python3 -c "from pathlib import Path; paths=['skills/mail-lens/SKILL.md']; n=sum(len(Path(p).read_text()) for p in paths); print(n, n/2)"
+```
+
+The approved original mandatory load was 23297 characters (2092 entry + 5832
+workflow + 15373 commands). Immediately before #45 it was 17502 (2092 + 5841 +
+9569). The new entry is measured independently; its ceiling is 7766 characters.
+For comparison only, characters / 2 is an explicitly rough token estimate for
+both baselines and the new load (original about 11649; target about 3000).
+This is no tokenizer measurement, universal ratio, overflow root-cause diagnosis
+or performance certification. Conditional references add load only when needed.
+Render changed Markdown, inspect code/links/anchors, check representative ignore
+paths and synthetic fixture eligibility, and run `git diff --check`; do not add
+unit tests that merely repeat instruction sentences. Both actual-head required
+native jobs remain necessary: discovery compares changed installed instructions
+and resource bytes, so earlier green package results cannot validate this change.
+
 ## Private installed-model scenarios
 
 [Issue #9](https://github.com/philfanzhou/MailLens/issues/9) validates the exact
 final installed commit on native Windows/Classic Outlook with the configured
 OpenCode model and existing authorized sample mail. These are maintainer-run
 scenarios, **not passed results** or automated live-profile tests. Run serially.
-Record operation sequence, projected summary/body-chunk counts, excerpt scalar
+Record operation sequence, compact-view summary/body-chunk counts, excerpt scalar
 counts, total selected excerpt characters, elapsed time and before/after read-only
 observations privately outside Git. Public evidence is only sanitized counts,
 versions, candidate SHA, outcomes and gaps, never content/identifiers.
 
 | Scenario | Observable expectation |
 | --- | --- |
-| Show Inbox mail | browse first, <=10 selected summaries; only needed get calls with explicit 2000-scalar first chunks; no routine diagnose/folders/global search. Measure the warm-session ten-subject + one-body target from #1, not a synthetic timing claim. |
+| Show Inbox mail | browse first, <=10 selected summaries; only needed label get calls, at most three explicit 2000-scalar first chunks per answer (<=6000 total, fewer when enough); no routine diagnose/folders/global search. Measure the warm-session ten-subject + one-body target from #1, not a synthetic timing claim. |
 | Chinese word only in Body, selected custom folder | bounded search first in that exact scope; visible literal terms/range and a cited matching excerpt. |
 | Explicit all-mounted bounded/exhaustive request | preserve authorized scope, finite shared budgets and accurate observed/exact counts; no silent narrowing or completeness claim from a cap. |
 | Truncated/partial/denied result, missing result or stalled host | disclose gaps and last safe stage; no automatic retry/limit increase/global rescan, and no raw catalog/warning dump. |

@@ -6,7 +6,10 @@ PowerShell 5.1. The source [VERSION](../VERSION) targets `0.1.0-rc.3` under
 [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 uses historical schema 1; the current source implements schema 2.
 Published [rc.2](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
-also uses schema 2; rc.3 preserves query and receipt compatibility.
+also uses schema 2; rc.3 preserves query and receipt compatibility. Current
+source adds [pending changes](releases/unreleased.md) after published rc.3,
+including the compact caller and slim quickstart; the unchanged VERSION does
+not identify those changes as a new release.
 Verify any release's exact tag/commit through
 [fixed-source acquisition](versioned-installation.md), rather than treating VERSION
 alone as publication or source identity. This page
@@ -160,3 +163,51 @@ Installer operations do not call Outlook, a model, attachment content, registry
 or security-policy APIs. Query operation and live read-only state validation remain
 separate responsibilities of the [skill](../skills/mail-lens/SKILL.md) and
 [issue #9](https://github.com/philfanzhou/MailLens/issues/9).
+
+## Custom model limits and compaction
+
+After installation/restart, the [self-contained skill](../skills/mail-lens/SKILL.md)
+uses the shipped compact caller and labels for common queries. Its initial body
+budget is at most three necessary 2000-scalar chunks per answer (6000 total),
+fewer when enough. The default runtime get length is 2000; complete-package
+update/rollback restores the selected package's instructions and defaults, with
+no mailbox/configuration/receipt migration. Live Outlook/model assessment stays
+with [#9](https://github.com/philfanzhou/MailLens/issues/9).
+
+For a custom OpenCode provider model, the owner should declare accurate
+`limit.context` and `limit.output` for the existing endpoint/model. OpenCode V2
+uses plural `providers`; its [model limits](https://opencode.ai/v2/docs/models/#aliases)
+and [configuration schema](https://opencode.ai/v2/docs/config/#schema) describe
+these values. This illustrative **limit-only fragment** belongs under the user's
+existing provider/model entries; IDs and numbers are synthetic, not a complete
+provider setup or a recommendation for a particular model:
+
+```json
+{
+  "providers": {
+    "existing-provider-id": {
+      "models": {
+        "existing-model-id": {
+          "limit": { "context": 131072, "output": 8192 }
+        }
+      }
+    }
+  }
+}
+```
+
+Use limits documented by the actual endpoint, including a separate input limit
+when applicable; do not raise them to hide an error. Cross-check the pinned
+2.0.28 [model Limit schema](https://github.com/anomalyco/opencode/blob/026b106bc5d41b679ffc413264229c340871e4d3/packages/schema/src/config/provider.ts).
+MailLens never reads or edits this configuration, selects a model, adds
+credentials or changes permissions; this fragment authorizes no automated edit.
+
+Accurate limits let OpenCode make informed [compaction decisions](https://opencode.ai/v2/docs/compaction/).
+In the pinned 2.0.28 [compaction ceiling](https://github.com/anomalyco/opencode/blob/026b106bc5d41b679ffc413264229c340871e4d3/packages/core/src/session/compaction.ts#L900),
+the usable input ceiling uses the input limit (or context fallback) minus an
+explicit/default buffer. Setting output alone does not define that threshold.
+Compaction is lossy and cannot guarantee overflow avoidance, especially when
+fixed instructions/tool definitions already consume much of the window. Declared
+limits, smaller skill load and bounded excerpts do not certify model obedience,
+latency or a successful live context run. Verify future host versions against
+their own documentation; the supported discovery baseline remains 2.0.28.
