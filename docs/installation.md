@@ -1,15 +1,16 @@
 # Windows installation and lifecycle
 
 MailLens targets OpenCode on native Windows, Classic Outlook and Windows
-PowerShell 5.1. The source [VERSION](../VERSION) targets `0.1.0-rc.3` under
-[issue #40](https://github.com/philfanzhou/MailLens/issues/40). The immutable
+PowerShell 5.1. The source [VERSION](../VERSION) targets `0.1.0-rc.4` under
+[issue #50](https://github.com/philfanzhou/MailLens/issues/50). The immutable
 [published rc.1](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.1)
 uses historical schema 1; the current source implements schema 2.
 Published [rc.2](https://github.com/philfanzhou/MailLens/releases/tag/v0.1.0-rc.2)
-also uses schema 2; rc.3 preserves query and receipt compatibility. Current
-source adds [pending changes](releases/unreleased.md) after published rc.3,
-including the compact caller and slim quickstart; the unchanged VERSION does
-not identify those changes as a new release.
+also uses schema 2; published rc.3 adds OpenCode 2.0.28 verification. The rc.4
+candidate adds the compact caller, 2000-scalar get default and slim quickstart;
+see [compatibility changes](releases/unreleased.md) and
+[prepared rc.4 notes](releases/v0.1.0-rc.4.md). Query schema 2 and receipt schema 1
+remain unchanged; VERSION alone does not establish publication.
 Verify any release's exact tag/commit through
 [fixed-source acquisition](versioned-installation.md), rather than treating VERSION
 alone as publication or source identity. This page
@@ -88,9 +89,14 @@ install/update preserves all package and receipt bytes/timestamps, including its
 original source metadata. A changed package/version requires explicit Update;
 Update cannot adopt an absent or unmanaged directory. An older source is allowed
 for deliberate rollback; it changes the installed copy without changing tags.
-When moving to rc.3 from rc.2, update the complete owned package and restart
-OpenCode; query schema 2 and receipt schema 1 are unchanged. Verify the exact
-discovered copy using the OpenCode 2.0.28 steps in the README. Moving from rc.1
+When moving to rc.4, update the complete owned package, restart OpenCode, and use
+fresh requests/results and private selection runs. Query schema 2 and receipt
+schema 1 remain unchanged; the new managed caller/private format 1 indexes need
+the complete new package. Omitted get length changes from rc.3's 20000 to 2000
+Unicode scalars; explicit lengths remain compatible. Whole-package rollback to
+rc.3 restores its older default/instructions and lacks the new managed modes;
+do not reuse rc.4 private indexes with older packages. Verify the exact discovered
+copy using the OpenCode 2.0.28 steps in the README. Moving from rc.1
 also changes query schema 1 to schema 2 and requires fresh schema 2 requests/results.
 A rollback to published rc.1 restores schema 1 and
 its older defaults; do not continue using schema 2 callers with that package.

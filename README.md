@@ -3,11 +3,12 @@
 A read-only OpenCode skill for searching and analyzing Classic Outlook email on
 native Windows through local COM automation.
 
-The current schema-2 source targets `0.1.0-rc.3` in root [VERSION](VERSION),
+The current schema-2 source targets `0.1.0-rc.4` in root [VERSION](VERSION),
 including the managed compact caller, 2000-scalar get default, self-contained
 quickstart and OpenCode 2.0.28 verification below. These development changes
-postdate the immutable published rc.3; see [pending changes](docs/releases/unreleased.md).
-[Issue #40](https://github.com/philfanzhou/MailLens/issues/40)
+postdate the immutable published rc.3; see [rc.4 compatibility changes](docs/releases/unreleased.md)
+and [prepared rc.4 notes](docs/releases/v0.1.0-rc.4.md).
+[Issue #50](https://github.com/philfanzhou/MailLens/issues/50)
 owns this candidate's authorized publication. Use the actual
 [repository Releases](https://github.com/philfanzhou/MailLens/releases) and
 [fixed-source acquisition guide](docs/versioned-installation.md) to verify a
