@@ -20,7 +20,7 @@ Describe 'Managed caller and bound private selection' {
                 $root=Join-Path ([IO.Path]::GetTempPath()) ('caller-test-'+[Guid]::NewGuid().ToString('N'))
                 [void][IO.Directory]::CreateDirectory($root)
                 $input=Join-Path $root 'browse.json'
-                [IO.File]::WriteAllText($input,'{"schemaVersion":2,"operation":"browse"}',$utf8)
+                [IO.File]::WriteAllText($input,'{"schemaVersion":2,"operation":"browse"}',(New-Object Text.UTF8Encoding($true)))
                 return @{root=$root;request=$input;capture=@{json=$null};runs=(New-Object 'System.Collections.Generic.List[string]')}
             }
             function Invoke-CallerFixture($Fixture,$Double,$Extra=@{}) {
@@ -78,11 +78,31 @@ Describe 'Managed caller and bound private selection' {
             $result.view.selectedCount | Should -Be 0
             (Read-MailLensPrivateJson (Join-Path $result.view.runDirectory 'index.json')).entries.Count | Should -Be 0
         }
+        It 'publishes only ten of twelve complete summaries with accurate omissions' {
+            $double=New-BrowseDouble -Count 12
+            [IO.File]::WriteAllText($fixture.request,'{"schemaVersion":2,"operation":"browse","limit":12}',$utf8)
+            $result=Invoke-CallerFixture $fixture $double
+            $result.code | Should -Be 0
+            $result.view.selectedCount | Should -Be 10
+            $result.view.omittedSummaryCount | Should -Be 2
+            $result.view.metrics.returnedCount | Should -Be 12
+            $result.view.summaries[9].label | Should -BeExactly M10
+            @($double.state.calls | Where-Object {$_ -match '\.(Body|Recipients|Attachments|SenderName)$'}).Count | Should -Be 0
+        }
+        It 'preserves malformed UTF-8 request failure without any COM' {
+            [IO.File]::WriteAllBytes($fixture.request,[byte[]]@(255))
+            $result=Invoke-CallerFixture $fixture $double
+            $result.code | Should -Be 1
+            $result.view.errors[0].code | Should -BeExactly invalid_request_file
+            $result.view.operation | Should -BeNullOrEmpty
+            @($double.state.calls).Count | Should -Be 0
+        }
         It 'does not authorize labels for failed or cancelled queries: <Kind>' -ForEach @(@{Kind='failed'},@{Kind='cancelled'}) {
             if($Kind -eq 'failed') {$double=New-DetailDouble -Failures @{'session.DefaultStore'=$true}; $result=Invoke-CallerFixture $fixture $double}
             else { $calls=@{n=0}; $cancel={$calls.n++;return $calls.n -gt 2}.GetNewClosure(); $result=Invoke-CallerFixture $fixture $double @{CancellationRequested=$cancel} }
             $result.code | Should -BeIn @(1,130)
             $result.view.selectedCount | Should -Be 0
+            if($Kind -eq 'cancelled') {$result.view.errors[0].code | Should -BeExactly cancelled}
             [IO.File]::Exists((Join-Path $result.view.runDirectory 'index.json')) | Should -BeFalse
         }
         It 'preserves parse and request-validation failure operation null: <Text>' -ForEach @(@{Text='{'},@{Text='{"schemaVersion":1,"operation":"browse"}'},@{Text='{"schemaVersion":2,"operation":"browse","limit":"bad"}'}) {
@@ -123,7 +143,7 @@ Describe 'Managed caller and bound private selection' {
             $capture.json | Should -Not -Match 'wrong-id|s-a|m-1'
         }
         It 'rejects mixed modes and invalid ranges before COM: <Case>' -ForEach @(
-            @{Case='mixed';ModeArguments=@{RequestPath='x';RunDirectory='x';Label='M1'}},@{Case='missing';ModeArguments=@{}},@{Case='offset';ModeArguments=@{RunDirectory='x';Label='M1';BodyOffset=-1}},@{Case='length';ModeArguments=@{RunDirectory='x';Label='M1';BodyLength=100001}},@{Case='query-body';ModeArguments=@{RequestPath='x';BodyLength=2000}},@{Case='relative';ModeArguments=@{RequestPath='relative.json'}}
+            @{Case='mixed';ModeArguments=@{RequestPath='x';RunDirectory='x';Label='M1'}},@{Case='missing';ModeArguments=@{}},@{Case='offset';ModeArguments=@{RunDirectory='x';Label='M1';BodyOffset=-1}},@{Case='length';ModeArguments=@{RunDirectory='x';Label='M1';BodyLength=100001}},@{Case='query-body';ModeArguments=@{RequestPath='x';BodyLength=2000}},@{Case='relative';ModeArguments=@{RequestPath='relative.json'}},@{Case='empty-label';ModeArguments=@{RequestPath='x';Label=''}}
         ) {
             $capture=$fixture.capture; $writer={param($Json)$capture.json=$Json}.GetNewClosure()
             (Invoke-MailLensManagedRequest @ModeArguments -Adapter $double.adapter -Runtime $native -WriteView $writer) | Should -Be 1
@@ -293,7 +313,19 @@ Describe 'Native redirected stdout and concurrent label reads' -Tag Native {
         if([IO.Directory]::Exists($root)) {[IO.Directory]::Delete($root,$true)}
     }
     It 'writes one BOM-free UTF-8 object under an OEM 437 console and ASCII OutputEncoding' {
-        $result=Invoke-CIProcess $powershell @('-NoProfile','-STA','-File',$fixtureScript,'-RequestPath',$request) $root
+        $info=New-Object Diagnostics.ProcessStartInfo
+        $info.FileName=$powershell; $info.Arguments='-NoProfile -STA -File "'+$fixtureScript+'" -RequestPath "'+$request+'"'
+        $info.WorkingDirectory=$root; $info.UseShellExecute=$false; $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true
+        $process=New-Object Diagnostics.Process; $process.StartInfo=$info; $bytes=New-Object IO.MemoryStream
+        try {
+            [void]$process.Start()
+            $copy=$process.StandardOutput.BaseStream.CopyToAsync($bytes); $stderr=$process.StandardError.ReadToEndAsync()
+            if(-not $process.WaitForExit(30000)) {$process.Kill(); throw 'Synthetic child timed out.'}
+            $copy.GetAwaiter().GetResult(); $null=$stderr.GetAwaiter().GetResult()
+            $rawBytes=$bytes.ToArray(); $rawBytes[0] | Should -Be 123
+            ($rawBytes.Length -ge 3 -and $rawBytes[0] -eq 239 -and $rawBytes[1] -eq 187 -and $rawBytes[2] -eq 191) | Should -BeFalse
+            $result=@{Code=$process.ExitCode;Out=$utf8.GetString($rawBytes)}
+        } finally {if(-not $process.HasExited) {$process.Kill()}; $process.Dispose(); $bytes.Dispose()}
         $result.Code | Should -BeIn @(0,2)
         $result.Out[0] | Should -Be '{'
         $view=ConvertFrom-Json $result.Out;$runs+=$view.runDirectory
