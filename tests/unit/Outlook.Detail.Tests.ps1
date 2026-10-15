@@ -70,15 +70,36 @@ Describe 'Exact item detail and current provenance' {
 }
 
 Describe 'Unicode scalar chunk boundaries and UTF-8 publication' {
-    It 'defaults to offset zero and length 20000 and preserves an empty body' {
+    It 'defaults to offset zero and length 2000 and preserves an empty body' {
         $double = New-DetailDouble -Body ''
         $result = Detail $double
         $result.status | Should -Be complete
         $result.data.detail.body | Should -BeExactly ''
         $result.data.detail.bodyTotalLength | Should -Be 0
         $result.data.detail.bodyOffset | Should -Be 0
-        $result.data.detail.bodyLength | Should -Be 20000
+        $result.data.detail.bodyLength | Should -Be 2000
         $result.data.detail.bodyTruncated | Should -BeFalse
+        Assert-AllReleased $double
+    }
+    It 'keeps the 2000-scalar default intact at a mixed-body boundary: <Kind>' -ForEach @(
+        @{ Kind = 'emoji at limit'; Ending = '中📮尾'; ExpectedEnding = '中📮'; Truncated = $true; Total = 2001 },
+        @{ Kind = 'emoji after limit'; Ending = '合同📮尾'; ExpectedEnding = '合同'; Truncated = $true; Total = 2002 },
+        @{ Kind = 'exact limit'; Ending = '中📮'; ExpectedEnding = '中📮'; Truncated = $false; Total = 2000 }
+    ) {
+        $prefix = '合📮' * 999
+        $double = New-DetailDouble -Body ($prefix + $Ending)
+        $result = Detail $double
+        $result.status | Should -Be complete
+        $result.data.detail.body | Should -BeExactly ($prefix + $ExpectedEnding)
+        $result.data.detail.bodyOffset | Should -Be 0
+        $result.data.detail.bodyLength | Should -Be 2000
+        $result.data.detail.bodyReturnedLength | Should -Be 2000
+        $result.data.detail.bodyTotalLength | Should -Be $Total
+        $result.data.detail.bodyOffsetUnit | Should -BeExactly unicodeScalarValues
+        $result.data.detail.bodyTruncated | Should -Be $Truncated
+        $utf8 = [Text.UTF8Encoding]::new($false, $true)
+        $copy = ConvertFrom-Json ($utf8.GetString($utf8.GetBytes((ConvertTo-Json -InputObject $result -Depth 30 -Compress))))
+        $copy.data.detail.body | Should -BeExactly ($prefix + $ExpectedEnding)
         Assert-AllReleased $double
     }
     It 'handles start/end/beyond offsets <Offset>' -ForEach @(
@@ -114,8 +135,14 @@ Describe 'Unicode scalar chunk boundaries and UTF-8 publication' {
     It 'caps a long body at default and maximum requested lengths' {
         $double = New-DetailDouble -Body ('a' * 100003)
         $first = Detail $double
-        $first.data.detail.bodyReturnedLength | Should -Be 20000
+        $first.data.detail.bodyReturnedLength | Should -Be 2000
         $first.data.detail.bodyTruncated | Should -BeTrue
+        $legacy = Detail $double ',"bodyLength":20000'
+        $legacy.status | Should -Be complete
+        $legacy.data.detail.bodyLength | Should -Be 20000
+        $legacy.data.detail.bodyReturnedLength | Should -Be 20000
+        $legacy.data.detail.body | Should -BeExactly ('a' * 20000)
+        $legacy.data.detail.bodyTruncated | Should -BeTrue
         $second = Detail $double ',"bodyLength":100000'
         $second.data.detail.bodyReturnedLength | Should -Be 100000
         $second.data.detail.bodyTotalLength | Should -Be 100003
