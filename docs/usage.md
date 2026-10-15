@@ -5,7 +5,10 @@ use the loaded `mail-lens` skill on native Windows with Classic Outlook and
 Windows PowerShell 5.1. The [Chinese skill](../skills/mail-lens/SKILL.md) and its
 [commands](../skills/mail-lens/references/commands.md) and
 [analysis workflow](../skills/mail-lens/references/workflow.md) contain the actual
-agent instructions. The [first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract)
+agent instructions. The entry is self-contained for browse, keyword/list-only
+search and a first label get; references load only for named advanced/error or
+multi-chunk conditions, without recursive mandatory reading. The
+[first-release contract](https://github.com/philfanzhou/MailLens/issues/1#single-authoritative-first-release-technical-contract)
 is authoritative; this guide explains using the existing behavior.
 
 ## Read a few Inbox subjects first
@@ -26,8 +29,10 @@ stores/folders or reading Body, sender, recipients or attachments. An exact
 strings together; never replace an unavailable identity with a same-subject mail.
 `limit` defaults to 10 (1–100), `maxItems` to 200 (1–10000 and at least `limit`),
 and `maxDurationSeconds` to 30 (1–300). No date, keyword or mailbox-list fields
-are accepted. Select only the needed identities for a separate `get` request;
-request a small explicit `bodyLength`, for example 2000 scalar values.
+are accepted. Select only needed labels for a separate managed `get`; explicitly
+request
+2000 scalar values for a first chunk. Raw source IDs below describe the private
+wire format; they need not enter model-written commands or context.
 
 `data.browse` reports effective limits, ordering, visited/returned/non-mail/
 unreadable counts, `scanComplete`, `moreAvailable`, `stopReason` and summaries.
@@ -57,7 +62,8 @@ restart OpenCode and create new requests/results; never mix scripts/instructions
 or reuse old results. Installer receipt schema 1 is a separate format and is
 unchanged. The published rc.1 remains schema 1 at
 `3298df822d8ebbe03f63df56213f59c898fa356e`; this schema 2 workflow needs a trusted
-current-source commit. VERSION is unchanged and no newer release is implied.
+current-source commit. VERSION remains `0.1.0-rc.3`; the [pending source changes](releases/unreleased.md)
+postdate published rc.3 and do not imply another publication.
 Rolling back the complete package to rc.1 restores the older protocol/defaults.
 
 ## Use the shipped compact caller
@@ -213,14 +219,15 @@ leave no final result. Search is not a coherent mailbox snapshot.
 
 Inspect the new envelope, requested/resolved scope, effective range/terms,
 coverage, exactness/stop reason and aggregate warnings before mail content.
-The [PowerShell extraction example](../skills/mail-lens/references/commands.md#selective-result-projection)
-strictly decodes UTF-8, validates schema/operation/status/exit, and prints only an
-allowlisted view with at most ten initially selected summaries. It keeps exact
-IDs, original rows and raw files in private local variables/files; no whole
-catalog, per-folder coverage list, warning location samples or private index is
-printed. Show selected display sources, omitted summary/location counts and
-aggregate gaps. Add a needed preview only as an excerpt. Projection limits do
-not change traversal completeness or mean unshown records are irrelevant.
+The [shipped compact caller](../skills/mail-lens/references/commands.md#selective-result-projection)
+strictly decodes UTF-8, validates the private schema/operation/status/exit and
+prints an allowlisted view with at most ten labeled summaries. Use its
+`requestedScope/resolvedScope`, `metrics`, `coverage` and `searchCoverage`; these
+are compact members, not raw `data.*` paths. Exact IDs, original rows and the
+immutable index stay in private files. No regenerated projection or model-side
+private ID variables are needed. Show display sources, omitted summary/location
+counts and aggregate gaps; the compact summaries do not print previews. View
+limits do not change traversal completeness or mean unshown records are irrelevant.
 
 Stop the automatic retrieval loop on the first stalled host or missing/invalid
 new result, or a repeated denied-access path. Report the last safe stage,
@@ -235,7 +242,9 @@ provide only new needed records/chunks instead of repeating catalogs/body histor
 
 ## Bodies, attachment names and sources
 
-Read relevant bodies by their exact `(storeId, entryId)` pair. A preview is only
+Read relevant bodies by the original selection `runDirectory` and case-sensitive
+label; the shipped caller resolves the exact private `(storeId, entryId)` pair.
+A preview is only
 a bounded excerpt derived from `Body`, not the whole email. If a moved/deleted or
 inaccessible identity cannot be resolved, report the explicit failure; never
 replace it by matching subject.
@@ -246,8 +255,12 @@ not bytes, UTF-16 string length or visible glyphs. The skill explicitly requests
 `bodyOffset:0, bodyLength:2000` for a selected body's first excerpt. The
 runtime default is 2000 and maximum 100000; keep the initial length explicit and
 disclose truncation. See the [pending compatibility note](releases/unreleased.md)
-for the intentional change to omitted lengths. Read additional records/chunks
-only when needed for the answer, with a deliberate bounded size. Advance by returned offset plus
+for the intentional change to omitted lengths. Each answer defaults to at most
+three necessary first chunks, each <=2000 scalars and <=6000 total; read fewer
+when enough. Before any extra records, later chunks or larger excerpts, explain
+the need and a bounded budget, and read the relevant multi-chunk instructions.
+This is model consumption guidance, not runtime enforcement or a latency
+promise. Advance by returned offset plus
 `bodyReturnedLength`. Merge only
 contiguous chunks with matching identity/current source/total length and usable,
 unchanged before/after modification times, including across chunks. If time is
@@ -255,9 +268,10 @@ unavailable, content changes or offset stops advancing, discard the combined
 account and reread from zero or disclose the inconsistent/single-chunk boundary.
 Do not retry indefinitely or claim a full consistent body from partial chunks.
 
-Assign local labels such as M1 and keep exact identities in private analysis
-context. Cite subject, returned time/field, mailbox/folder and result/body
-location for each substantive summary, timeline event or requested action. A
+Use returned labels such as M1, scoped to the original selection run and summary
+position; exact identities stay in caller-owned private files. Cite subject,
+returned time/field, mailbox/folder and result/body location for each substantive summary,
+timeline event or requested action. A
 synthetic citation could be “Confirm by Friday [M1: Starbridge agreement;
 2026-10-02 09:00 +08:00, ReceivedTime; Synthetic Mailbox/Inbox;
 result 1, summary 1, body chunk 1].” Label multi-email deductions as inference
@@ -268,6 +282,14 @@ Report `attachmentNames` and its completeness only. An empty complete list means
 no attachment names; a partial list does not prove no attachments. Never open,
 save, execute, OCR or analyze attachment content, or infer content from a name.
 Disclose incomplete recipient metadata; do not actively resolve recipients.
+
+## OpenCode context limits
+
+A custom model needs accurate context and output limits for its existing endpoint.
+See the [V2 configuration example and compaction boundaries](installation.md#custom-model-limits-and-compaction).
+MailLens does not inspect or edit model settings. Smaller instructions and selected
+excerpts reduce avoidable input, but do not diagnose the unavailable overflow
+transcripts or guarantee that compaction prevents overflow.
 
 ## Privacy and data flow
 
