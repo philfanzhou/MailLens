@@ -199,10 +199,11 @@ If a verified item moved, disclose its current folder.
 
 Body chunks use Unicode scalar values (`bodyOffsetUnit: unicodeScalarValues`),
 not bytes, UTF-16 string length or visible glyphs. The skill explicitly requests
-`bodyOffset:0, bodyLength:2000` for a selected body's first excerpt. The unchanged
-runtime default is 20000 and maximum 100000; omit neither the initial length nor
-its truncation disclosure. Read additional records/chunks only when needed for
-the answer, with a deliberate bounded size. Advance by returned offset plus
+`bodyOffset:0, bodyLength:2000` for a selected body's first excerpt. The
+runtime default is 2000 and maximum 100000; keep the initial length explicit and
+disclose truncation. See the [pending compatibility note](releases/unreleased.md)
+for the intentional change to omitted lengths. Read additional records/chunks
+only when needed for the answer, with a deliberate bounded size. Advance by returned offset plus
 `bodyReturnedLength`. Merge only
 contiguous chunks with matching identity/current source/total length and usable,
 unchanged before/after modification times, including across chunks. If time is

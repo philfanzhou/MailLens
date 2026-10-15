@@ -1165,7 +1165,7 @@ function Read-MailLensDetail {
             $body = & $Adapter.Property $item 'Body'
             if ($body -isnot [string]) { throw 'Missing body.' }
         } catch { if ($_.Exception.Data['MailLensCode'] -eq 'cancelled') { throw }; Stop-MailLens 'body_unavailable' 'The requested plain Body is unavailable; it is not an empty body.' }
-        $offset = 0; $length = 20000
+        $offset = 0; $length = 2000
         $names = @($Request.PSObject.Properties.Name)
         if ('bodyOffset' -in $names) { $offset = $Request.bodyOffset }
         if ('bodyLength' -in $names) { $length = $Request.bodyLength }
