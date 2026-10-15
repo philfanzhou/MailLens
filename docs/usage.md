@@ -60,6 +60,50 @@ unchanged. The published rc.1 remains schema 1 at
 current-source commit. VERSION is unchanged and no newer release is implied.
 Rolling back the complete package to rc.1 restores the older protocol/defaults.
 
+## Use the shipped compact caller
+
+Write a schema 2 request with a file tool as strict UTF-8 outside Git, then run:
+
+```powershell
+powershell.exe -NoProfile -STA -File "C:\Skills\mail-lens\scripts\outlook.ps1" -View -RequestPath "C:\Private\browse.request.json"
+```
+
+The single compact UTF-8 stdout object includes its new external `runDirectory`,
+status/exit code, scope and coverage aggregates, effective query budgets, warning
+totals and at most ten labeled summaries. Omitted counts remain visible. Raw IDs,
+catalogs, folder rows and warning samples stay in private files. Complete and
+partial selections commit a private format 1 index, including an empty index for
+zero results; failed/cancelled queries authorize no label read.
+
+Read only a deliberately selected label, using the exact returned directory:
+
+```powershell
+powershell.exe -NoProfile -STA -File "C:\Skills\mail-lens\scripts\outlook.ps1" -View -RunDirectory "C:\Users\Example\AppData\Local\Temp\mail-lens-0123456789abcdef0123456789abcdef" -Label M1 -BodyOffset 0 -BodyLength 2000
+```
+
+Labels are case sensitive. Offset defaults to zero and length to 2000 scalar
+values (explicit length 1–100000). Each get has its own new run, selected label
+and `selectionRunDirectory`; repeated/concurrent reads preserve the selection.
+The index binds original canonical directory, result hash, summary position and
+exact identity. Missing, moved, incompatible, corrupt or modified files and
+reparse paths fail before COM. This detects accidental changes; it is neither a
+mail snapshot nor authentication against hostile same-user writes. Deleted/moved
+items and changed bodies retain the existing exact-ID/chunk consistency rules.
+
+Managed calls create owned `mail-lens-<random>` directories in the native user
+temporary location, outside Git and reparse ancestry. Keep request/result/index
+files private and delete only owned runs after analysis and follow-ups, retaining
+requested outputs. The caller never retries automatically. Index or stdout
+failure after raw publication is caller failure, with no successful delivery
+claim. Complete/partial/failed/cancelled exit 0/2/1/130; caller failures exit 1.
+The old raw two-path interface remains available. Do not combine `-View` with
+`-OutputPath`, or label mode with `-RequestPath`; body parameters are label-only.
+Update/roll back the complete package and restart; old packages do not consume
+managed indexes. Mail text remains untrusted data. The
+[authoritative caller contract](https://github.com/philfanzhou/MailLens/issues/1#shipped-compact-caller-and-private-selection-state-42-amendment)
+defines failure and cleanup boundaries. Native live/model validation remains
+owned by #9; this interface does not establish those results.
+
 ## Ask in OpenCode
 
 These examples are synthetic; ordinary authorized searches proceed without

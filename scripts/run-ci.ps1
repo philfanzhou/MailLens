@@ -21,7 +21,7 @@ try {
     $env:MAIL_LENS_PESTER_MANIFEST = $manifest
     if ($Job -eq 'windows-tests') {
         $path = Join-Path $repository 'tests/unit'
-        $required = 'Installer.Tests.ps1;Outlook.Browse.Tests.ps1;Outlook.Detail.Tests.ps1;Outlook.Search.Tests.ps1;Outlook.Session.Tests.ps1;CI.Tests.ps1'
+        $required = 'Installer.Tests.ps1;Outlook.Browse.Tests.ps1;Outlook.Caller.Tests.ps1;Outlook.Detail.Tests.ps1;Outlook.Search.Tests.ps1;Outlook.Session.Tests.ps1;CI.Tests.ps1'
     } else {
         . (Join-Path $PSScriptRoot 'ci-process.ps1')
         $url = 'https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-2.0.28.tgz'

@@ -1,8 +1,13 @@
 ﻿# Run in native Windows PowerShell 5.1: powershell.exe -NoProfile -STA -File outlook.ps1 ...
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$RequestPath,
-    [Parameter(Mandatory = $true)][string]$OutputPath
+    [string]$RequestPath,
+    [string]$OutputPath,
+    [switch]$View,
+    [string]$RunDirectory,
+    [string]$Label,
+    [string]$BodyOffset = '0',
+    [string]$BodyLength = '2000'
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'MailLens.Outlook.psm1') -Force
@@ -26,7 +31,28 @@ namespace MailLens {
 $code = 1
 try {
     [MailLens.ConsoleCancellation]::Start()
-    $code = Invoke-MailLensFileRequest -RequestPath $RequestPath -OutputPath $OutputPath -CancellationRequested { [MailLens.ConsoleCancellation]::Requested }
+    if ($View) {
+        if ($PSBoundParameters.ContainsKey('OutputPath')) { throw 'Invalid managed parameters.' }
+        $arguments = @{ CancellationRequested = { [MailLens.ConsoleCancellation]::Requested } }
+        foreach ($name in @('RequestPath', 'RunDirectory', 'Label', 'BodyOffset', 'BodyLength')) {
+            if ($PSBoundParameters.ContainsKey($name)) {
+                $value = $PSBoundParameters[$name]
+                if ($name -in @('BodyOffset', 'BodyLength')) {
+                    $number = 0
+                    if ($value -notmatch '^[0-9]+$' -or -not [int]::TryParse($value, [ref]$number)) { throw 'Invalid body range.' }
+                    $value = $number
+                }
+                $arguments[$name] = $value
+            }
+        }
+        $code = Invoke-MailLensManagedRequest @arguments
+    } else {
+        foreach ($name in @('RunDirectory', 'Label', 'BodyOffset', 'BodyLength')) {
+            if ($PSBoundParameters.ContainsKey($name)) { throw 'Invalid raw parameters.' }
+        }
+        if (-not $RequestPath -or -not $OutputPath) { throw 'Raw paths are required.' }
+        $code = Invoke-MailLensFileRequest -RequestPath $RequestPath -OutputPath $OutputPath -CancellationRequested { [MailLens.ConsoleCancellation]::Requested }
+    }
 } catch {
     # Fixed English message only: never print request contents, COM objects or mail.
     [Console]::Error.WriteLine('MailLens could not publish a result. Check absolute request/output paths and use a unique writable result file.')
